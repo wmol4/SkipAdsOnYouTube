@@ -10,70 +10,35 @@
 // @run-at       document-body
 // ==/UserScript==
 
+// Misc Parameters
 let maxRateFound = null;
 let playerElem = null;
 let videoElem = null;
 let intervalID = null;
 let isHidden = false;
-let opacityVal = '0.25';
-let intervals = {};
-let overlayElem = null;
+let opacityVal = '0';
 
+// Observers
 let playerChangesObserver = null;
 let playerObserver = null;
-let adChangesObservers = new Set();
 let adObserver = null;
+
+// Locations for observers
+let vidLoc = null;
+let adLoc = null;
 
 function trySkipAd() {
     let skipButton = document.querySelector('.ytp-ad-skip-button');
     if (skipButton && !skipButton.disabled) {
         skipButton.click();
-        console.log('[Fast Ads] HUGE skip');
+        console.log('[Fast Ads] HUGE ad skip');
     }
-}
-
-function createOverlay() {
-    overlayElem = document.createElement('div');
-    overlayElem.style.position = 'absolute';
-    overlayElem.style.display = 'flex';
-    overlayElem.style.justifyContent = 'center'; // Horizontally center the inner div
-    overlayElem.style.alignItems = 'center'; // Vertically center the inner div
-    overlayElem.style.pointerEvents = 'none'; // Allow click events to pass through the overlay
-
-    // Create an inner div for the text
-    let textDiv = document.createElement('div');
-    textDiv.innerText = "SKIPPING ADS";
-    textDiv.style.fontSize = `${playerElem.offsetHeight * 0.25}px`;
-    textDiv.style.lineHeight = `${playerElem.offsetHeight * 0.25}px`;
-    textDiv.style.overflow = 'hidden';
-    textDiv.style.color = 'grey';
-    //textDiv.style.backgroundColor = 'black';
-    //textDiv.style.padding = '10px';
-    //textDiv.style.borderRadius = '5px';
-
-    // Add the textDiv to the overlayElem
-    overlayElem.appendChild(textDiv);
-
-    // Get the position and size of the playerElem
-    let rect = playerElem.getBoundingClientRect();
-    overlayElem.style.top = `${rect.top + window.scrollY}px`;
-    overlayElem.style.left = `${rect.left + window.scrollX}px`;
-    overlayElem.style.width = `${rect.width}px`;
-    overlayElem.style.height = `${rect.height}px`;
-
-    // Get the z-index of the playerElem and set the overlay's z-index to one higher
-    let zIndex = window.getComputedStyle(playerElem).zIndex;
-    overlayElem.style.zIndex = (parseInt(zIndex, 10) || 0) + 1;
-    overlayElem.style.display = 'none';
-    // Add the overlay to the document body
-    document.body.appendChild(overlayElem);
 }
 
 function hideElements() {
     if (isHidden === false || playerElem.style.opacity === '1') {
         playerElem.style.opacity = opacityVal;
         videoElem.style.opacity = opacityVal;
-        overlayElem.style.display = 'flex';
         console.log('[Fast Ads] Get blocked, kid');
         isHidden = true;
     }
@@ -83,8 +48,6 @@ function showElements() {
     if (isHidden === true || playerElem.style.opacity !== '1') {
         playerElem.style.opacity = '1';
         videoElem.style.opacity = '1';
-        overlayElem.style.display = 'none';
-        //console.log('[Fast Ads] Get unblocked, champ');
         isHidden = false;
     }
 }
@@ -137,16 +100,25 @@ function speedUpAds() {
     }
 }
 
-function waitForBodyAndObserve(callback) {
-    if (document.body) {
+function waitForVidLocAndObserve(callback) {
+    vidLoc = document.body;
+    if (vidLoc) {
         callback();
     } else {
-        setTimeout(() => waitForBodyAndObserve(callback), 10);
+        setTimeout(() => waitForVidLocAndObserve(callback), 10);
+    }
+}
+
+function waitForAdLocAndObserve(callback) {
+    adLoc = document.querySelector('#page-manager');
+    if (adLoc) {
+        callback();
+    } else {
+        setTimeout(() => waitForAdLocAndObserve(callback), 10);
     }
 }
 
 function observePlayerChanges() {
-    createOverlay();
     speedUpAds();
     playerChangesObserver = new MutationObserver(function(mutationsList, obs) {
         speedUpAds();
@@ -173,64 +145,33 @@ function waitForPlayerAndObserve() {
                 playerObserver.disconnect();
             }
         });
-        playerObserver.observe(document.body, {
+        playerObserver.observe(vidLoc, {
             childList: true,
             subtree: true
         });
     }
 }
 
-function observeAdChanges(adElem, selector) {
-    if (!adElem) return;
-
-    adElem.remove();
-
-    const observer = new MutationObserver(function(mutationsList, obs) {
-        if (!document.body.contains(adElem)) {
-            obs.disconnect();
-            adChangesObservers.delete(obs)
-        } else {
-            adElem.remove();
-            obs.disconnect();
-            adChangesObservers.delete(obs)
-        }
-    });
-
-    adChangesObservers.add(observer)
-    observer.observe(adElem, {
-        attributes: true,
-        childList: true,
-        subtree: true
-    });
-
-    console.log('[Fast Ads] Removed ' + selector);
-}
-
-const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad']; // Add all your ad selectors here
+const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#below > ytd-merch-shelf-renderer', '#movie_player > div.ytp-paid-content-overlay']; // Add all your ad selectors here
 // const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#rendering-content > ytd-video-display-full-buttoned-renderer', '[target-id="engagement-panel-ads"]', '#panels', '#contents > ytd-ad-slot-renderer']
-function waitForAdsAndObserve() {
-    const observedSelectors = new Set();
-
-    adObserver = new MutationObserver(function(mutations) {
-        adSelectors.forEach(selector => {
-            let adElem = document.querySelector(selector);
-            if (adElem && !observedSelectors.has(selector)) {
-                observeAdChanges(adElem, selector);
-                observedSelectors.add(selector); // Mark the selector as observed
-            }
-        });
-    });
-
-    // Initial check and removal
+function removeAds() {
     adSelectors.forEach(selector => {
-        let adElem = document.querySelector(selector);
+        let adElem = adLoc.querySelector(selector);
         if (adElem) {
-            observeAdChanges(adElem, selector);
-            observedSelectors.add(selector);
+            adElem.remove();
+            console.log('[Fast Ads] Removed ' + selector);
         }
     });
+}
+function waitForAdsAndObserve() {
+    adObserver = new MutationObserver(function(mutations) {
+        removeAds();
+    });
 
-    adObserver.observe(document.body, {
+    // Initial check
+    removeAds();
+
+    adObserver.observe(adLoc, {
         childList: true,
         subtree: true
     });
@@ -238,11 +179,6 @@ function waitForAdsAndObserve() {
 
 function mainFunction() {
     'use strict';
-
-    if (overlayElem) {
-        overlayElem.remove();
-        //console.log('[Fast Ads] Removed overlay');
-    }
     if (playerChangesObserver) {
         playerChangesObserver.disconnect();
         playerChangesObserver = null;
@@ -253,19 +189,14 @@ function mainFunction() {
         playerObserver = null;
         //console.log('[Fast Ads] Reset playerObserver');
     }
-    if (adChangesObservers.size > 0) {
-        adChangesObservers.forEach(obs => obs.disconnect());
-        adChangesObservers.clear();
-        //console.log(`[Fast Ads] Disconnecting and clearing ${adChangesObservers.size} adChangesObservers`);
-    }
     if (adObserver) {
         adObserver.disconnect();
         adObserver = null;
         //console.log('[Fast Ads] Reset adObserver');
     }
 
-    waitForBodyAndObserve(waitForPlayerAndObserve);
-    waitForBodyAndObserve(waitForAdsAndObserve);
+    waitForVidLocAndObserve(waitForPlayerAndObserve);
+    waitForAdLocAndObserve(waitForAdsAndObserve);
 }
 
 let lastPathStr = location.pathname;
@@ -287,4 +218,4 @@ function checkForURLChange() {
 mainFunction();
 
 // Set an interval to continuously check for URL changes
-setInterval(checkForURLChange, 500);
+setInterval(checkForURLChange, 1000);
