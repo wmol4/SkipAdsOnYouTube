@@ -80,7 +80,7 @@ function speedUpAds() {
         if (!maxRateFound) { getMaxRate(); }
         if (!intervalID) { intervalID = setInterval(trySkipAd, 100); }
         hideElements();
-        videoElem.playbackRate = maxRateFound
+        videoElem.playbackRate = maxRateFound;
         videoElem.muted = true;
         //playerElem.mute();
     } else {
