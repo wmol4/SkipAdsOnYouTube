@@ -35,19 +35,25 @@ function trySkipAd() {
     }
 }
 
-function hideElements() {
+function adPlaying() {
     if (isHidden === false || playerElem.style.opacity === '1') {
         playerElem.style.opacity = opacityVal;
         videoElem.style.opacity = opacityVal;
+        videoElem.playbackRate = maxRateFound;
+        videoElem.muted = true;
+        //playerElem.mute();
         console.log('[Fast Ads] Get blocked, kid');
         isHidden = true;
     }
 }
 
-function showElements() {
+function vidPlaying() {
     if (isHidden === true || playerElem.style.opacity !== '1') {
         playerElem.style.opacity = '1';
         videoElem.style.opacity = '1';
+        videoElem.playbackRate = 1;
+        videoElem.muted = false; // Unmute the video
+        //playerElem.unMute();
         isHidden = false;
     }
 }
@@ -79,21 +85,15 @@ function speedUpAds() {
     if (playerElem.classList.contains('ad-interrupting')) {
         if (!maxRateFound) { getMaxRate(); }
         if (!intervalID) { intervalID = setInterval(trySkipAd, 100); }
-        hideElements();
-        videoElem.playbackRate = maxRateFound;
-        videoElem.muted = true;
-        //playerElem.mute();
+        adPlaying();
     } else {
         closeInterval();
-        showElements();
-        videoElem.playbackRate = 1;
-        videoElem.muted = false; // Unmute the video
-        //playerElem.unMute();
+        vidPlaying();
     }
 }
 
 function waitForVidLoc(callback) {
-    vidLoc = document.body;
+    vidLoc = document.body; // Needs to be the body because sometimes the ads load/play before the structure has settled
     if (vidLoc) {
         callback();
     } else {
@@ -112,7 +112,7 @@ function waitForAdLoc(callback) {
 
 function observePlayerChanges() {
     speedUpAds();
-    playerChangesObserver = new MutationObserver(function(mutationsList, obs) {
+    playerChangesObserver = new MutationObserver(function(mutations) {
         speedUpAds();
     });
 
@@ -144,19 +144,11 @@ function waitForPlayerAndObserve() {
     }
 }
 
-const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#below > ytd-merch-shelf-renderer', '#movie_player > div.ytp-paid-content-overlay', 'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog']; // Add all your ad selectors here
+const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#below > ytd-merch-shelf-renderer',
+                     '#movie_player > div.ytp-paid-content-overlay', 'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog']
+//                     '#rendering-content > ytd-video-display-full-buttoned-renderer', '[target-id="engagement-panel-ads"]',
+//                     '#contents > ytd-ad-slot-renderer'];
 const selectorString = adSelectors.join(', ');
-// const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#rendering-content > ytd-video-display-full-buttoned-renderer', '[target-id="engagement-panel-ads"]', '#contents > ytd-ad-slot-renderer']
-// function removeAds() {
-//     adSelectors.forEach(selector => {
-//         //let adElem = adLoc.querySelector(selector);
-//         let adElem = document.querySelector(selector);
-//         if (adElem) {
-//             adElem.remove();
-//             console.log('[Fast Ads] Removed ' + selector);
-//         }
-//     });
-// }
 function removeAds() {
     const elementsToRemove = document.querySelectorAll(selectorString);
     elementsToRemove.forEach(el => el.remove());
