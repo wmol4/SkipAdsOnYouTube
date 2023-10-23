@@ -16,7 +16,7 @@ let playerElem = null;
 let videoElem = null;
 let intervalID = null;
 let isHidden = false;
-let opacityVal = '0';
+let opacityVal = '0.25';
 
 // Observers
 let playerChangesObserver = null;
@@ -39,9 +39,6 @@ function adPlaying() {
     if (isHidden === false || playerElem.style.opacity === '1') {
         playerElem.style.opacity = opacityVal;
         videoElem.style.opacity = opacityVal;
-        videoElem.playbackRate = maxRateFound;
-        videoElem.muted = true;
-        //playerElem.mute();
         console.log('[Fast Ads] Get blocked, kid');
         isHidden = true;
     }
@@ -51,9 +48,6 @@ function vidPlaying() {
     if (isHidden === true || playerElem.style.opacity !== '1') {
         playerElem.style.opacity = '1';
         videoElem.style.opacity = '1';
-        videoElem.playbackRate = 1;
-        videoElem.muted = false; // Unmute the video
-        //playerElem.unMute();
         isHidden = false;
     }
 }
@@ -78,7 +72,7 @@ function getMaxRate() {
         }
         rate -= decrement;
     }
-    maxRateFound = 1;
+    if (!maxRateFound) { maxRateFound = 1; }
 }
 
 function speedUpAds() {
@@ -86,9 +80,15 @@ function speedUpAds() {
         if (!maxRateFound) { getMaxRate(); }
         if (!intervalID) { intervalID = setInterval(trySkipAd, 100); }
         adPlaying();
+        videoElem.playbackRate = maxRateFound;
+        videoElem.muted = true;
+        //playerElem.mute();
     } else {
         closeInterval();
         vidPlaying();
+        videoElem.playbackRate = 1;
+        videoElem.muted = false; // Unmute the video
+        //playerElem.unMute();
     }
 }
 
@@ -144,10 +144,13 @@ function waitForPlayerAndObserve() {
     }
 }
 
-const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#below > ytd-merch-shelf-renderer',
-                     '#movie_player > div.ytp-paid-content-overlay', 'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog']
-//                     '#rendering-content > ytd-video-display-full-buttoned-renderer', '[target-id="engagement-panel-ads"]',
-//                     '#contents > ytd-ad-slot-renderer'];
+const adSelectors = ['#fulfilled-layout',
+                     '#player-ads',
+                     '#masthead-ad',
+                     '#below > ytd-merch-shelf-renderer',
+                     '#movie_player > div.ytp-paid-content-overlay',
+                     'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog']
+
 const selectorString = adSelectors.join(', ');
 function removeAds() {
     const elementsToRemove = document.querySelectorAll(selectorString);
