@@ -62,33 +62,25 @@ function closeInterval() {
 function getMaxRate() {
     let rate = 16;
     const decrement = 1;
-    while (rate > 1) { // Ensure rate doesn't go below 1
+    while (rate > 1) {
         try {
             videoElem.playbackRate = rate;
             maxRateFound = rate;
-            //console.log('[Fast Ads] Max Speed: ' + maxRateFound);
             break;
         } catch (error) {
             // Error when setting unsupported playback rate, just continue with the loop
         }
         rate -= decrement;
     }
-    if (maxRateFound === null) {
-        maxRateFound = 1;
-    }
+    maxRateFound = 1;
 }
 
 function speedUpAds() {
     if (playerElem.classList.contains('ad-interrupting')) {
-        if (maxRateFound === null) { // first call to set isInterrupting and maxRateFound
-            getMaxRate();
-        }
-        if (intervalID === null) {
-            // Start clicking the skip ad button every 100ms, set the ID to close later
-            intervalID = setInterval(trySkipAd, 100);
-        }
+        if (!maxRateFound) { getMaxRate(); }
+        if (!intervalID) { intervalID = setInterval(trySkipAd, 100); }
         hideElements();
-        videoElem.playbackRate = maxRateFound;
+        videoElem.playbackRate = maxRateFound
         videoElem.muted = true;
         //playerElem.mute();
     } else {
@@ -100,21 +92,21 @@ function speedUpAds() {
     }
 }
 
-function waitForVidLocAndObserve(callback) {
+function waitForVidLoc(callback) {
     vidLoc = document.body;
     if (vidLoc) {
         callback();
     } else {
-        setTimeout(() => waitForVidLocAndObserve(callback), 10);
+        setTimeout(() => waitForVidLoc(callback), 10);
     }
 }
 
-function waitForAdLocAndObserve(callback) {
+function waitForAdLoc(callback) {
     adLoc = document.querySelector('#page-manager');
     if (adLoc) {
         callback();
     } else {
-        setTimeout(() => waitForAdLocAndObserve(callback), 10);
+        setTimeout(() => waitForAdLoc(callback), 10);
     }
 }
 
@@ -152,17 +144,24 @@ function waitForPlayerAndObserve() {
     }
 }
 
-const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#below > ytd-merch-shelf-renderer', '#movie_player > div.ytp-paid-content-overlay']; // Add all your ad selectors here
-// const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#rendering-content > ytd-video-display-full-buttoned-renderer', '[target-id="engagement-panel-ads"]', '#panels', '#contents > ytd-ad-slot-renderer']
+const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#below > ytd-merch-shelf-renderer', '#movie_player > div.ytp-paid-content-overlay', 'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog']; // Add all your ad selectors here
+const selectorString = adSelectors.join(', ');
+// const adSelectors = ['#fulfilled-layout', '#player-ads', '#masthead-ad', '#rendering-content > ytd-video-display-full-buttoned-renderer', '[target-id="engagement-panel-ads"]', '#contents > ytd-ad-slot-renderer']
+// function removeAds() {
+//     adSelectors.forEach(selector => {
+//         //let adElem = adLoc.querySelector(selector);
+//         let adElem = document.querySelector(selector);
+//         if (adElem) {
+//             adElem.remove();
+//             console.log('[Fast Ads] Removed ' + selector);
+//         }
+//     });
+// }
 function removeAds() {
-    adSelectors.forEach(selector => {
-        let adElem = adLoc.querySelector(selector);
-        if (adElem) {
-            adElem.remove();
-            console.log('[Fast Ads] Removed ' + selector);
-        }
-    });
+    const elementsToRemove = document.querySelectorAll(selectorString);
+    elementsToRemove.forEach(el => el.remove());
 }
+
 function waitForAdsAndObserve() {
     adObserver = new MutationObserver(function(mutations) {
         removeAds();
@@ -195,9 +194,12 @@ function mainFunction() {
         //console.log('[Fast Ads] Reset adObserver');
     }
 
-    waitForVidLocAndObserve(waitForPlayerAndObserve);
-    waitForAdLocAndObserve(waitForAdsAndObserve);
+    waitForVidLoc(waitForPlayerAndObserve);
+    waitForAdLoc(waitForAdsAndObserve);
 }
+
+// Run script logic immediately for initial page load
+mainFunction();
 
 let lastPathStr = location.pathname;
 let lastQueryStr = location.search;
@@ -213,9 +215,6 @@ function checkForURLChange() {
         mainFunction();
     }
 }
-
-// Run script logic immediately for initial page load
-mainFunction();
 
 // Set an interval to continuously check for URL changes
 setInterval(checkForURLChange, 1000);
