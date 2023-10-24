@@ -16,7 +16,7 @@ let playerElem = null;
 let videoElem = null;
 let intervalID = null;
 let isHidden = false;
-let opacityVal = '0.25';
+let opacityVal = '0';
 
 // Observers
 let playerChangesObserver = null;
@@ -49,6 +49,7 @@ function vidPlaying() {
         playerElem.style.opacity = '1';
         videoElem.style.opacity = '1';
         isHidden = false;
+        //playerElem.unMute();
     }
 }
 
@@ -75,20 +76,38 @@ function getMaxRate() {
     if (!maxRateFound) { maxRateFound = 1; }
 }
 
+function waitForMetadata() {
+    return new Promise((resolve, reject) => {
+        function checkReadyState() {
+            if (videoElem.readyState >= 1) {
+                resolve();
+            } else {
+                setTimeout(checkReadyState, 10);
+            }
+        }
+        checkReadyState();
+    });
+}
+
+async function skipToEnd() {
+    await waitForMetadata();
+    const duration = videoElem.duration;
+    videoElem.currentTime = duration;
+    console.log(`[Fast Ads] Full Skipped ${duration}s ad`);
+}
+
 function speedUpAds() {
     if (playerElem.classList.contains('ad-interrupting')) {
-        if (!maxRateFound) { getMaxRate(); }
+        //if (!maxRateFound) { getMaxRate(); }
         if (!intervalID) { intervalID = setInterval(trySkipAd, 100); }
         adPlaying();
-        videoElem.playbackRate = maxRateFound;
-        videoElem.muted = true;
+        skipToEnd();
+        //videoElem.playbackRate = maxRateFound;
         //playerElem.mute();
     } else {
         closeInterval();
         vidPlaying();
-        videoElem.playbackRate = 1;
-        videoElem.muted = false; // Unmute the video
-        //playerElem.unMute();
+        //videoElem.playbackRate = 1;
     }
 }
 
@@ -149,7 +168,9 @@ const adSelectors = ['#fulfilled-layout',
                      '#masthead-ad',
                      '#below > ytd-merch-shelf-renderer',
                      '#movie_player > div.ytp-paid-content-overlay',
-                     'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog']
+                     'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog',
+                     '[target-id="engagement-panel-ads"]'
+                     ]
 
 const selectorString = adSelectors.join(', ');
 function removeAds() {
