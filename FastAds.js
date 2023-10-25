@@ -25,6 +25,9 @@ let adObserver = null;
 let vidLoc = null;
 let adLoc = null;
 
+let isThrottled = null;
+let isSkipping = null;
+
 function trySkipAd() {
     let skipButton = document.querySelector('.ytp-ad-skip-button');
     if (skipButton && !skipButton.disabled) {
@@ -70,7 +73,6 @@ function waitForMetadata() {
     });
 }
 
-let isSkipping = false;
 async function skipToEnd() {
     await waitForMetadata();
     if (playerElem.classList.contains('ad-interrupting') && !isSkipping) {
@@ -106,6 +108,7 @@ function waitForVidLoc(callback) {
 }
 
 function observePlayerChanges() {
+    isSkipping = false;
     speedUpAds(); // Initial check
     videoElem.addEventListener('durationchange', speedUpAds);
     videoElem.addEventListener('playing', speedUpAds);
@@ -142,7 +145,6 @@ const adSelectors = ['#fulfilled-layout',
                      ]
 const adSelectorString = adSelectors.join(',');
 
-let isThrottled = true;
 function getElementSelector(element) {
   if (element.id) {
     return '#' + element.id;
@@ -156,21 +158,23 @@ function getElementSelector(element) {
 
 function removeAds() {
     const elementsToRemove = document.querySelectorAll(adSelectorString);
-    elementsToRemove.forEach(el => {
-        console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
-        el.remove();
-    });
-    setTimeout(() => {
-        isThrottled = false;
-    }, 100);
+    if (!isThrottled && elementsToRemove.length !== 0) {
+        isThrottled = true;
+        elementsToRemove.forEach(el => {
+            console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
+            el.remove();
+        });
+        setTimeout(() => {
+            isThrottled = false;
+            removeAds();
+        }, 100);
+    }
 }
 
 function waitForAdsAndObserve() {
+    isThrottled = false;
     adObserver = new MutationObserver(function(mutations) {
-        if (isThrottled === false) {
-            isThrottled = true;
-            removeAds();
-        }
+        removeAds();
     });
 
     // Initial check
