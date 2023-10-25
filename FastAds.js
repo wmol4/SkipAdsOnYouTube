@@ -49,7 +49,6 @@ function vidPlaying() {
         playerElem.style.opacity = '1';
         videoElem.style.opacity = '1';
         isHidden = false;
-        //playerElem.unMute();
     }
 }
 
@@ -58,22 +57,6 @@ function closeInterval() {
         clearInterval(intervalID); // Stop clicking the skip ad button
         intervalID = null;
     }
-}
-
-function getMaxRate() {
-    let rate = 16;
-    const decrement = 1;
-    while (rate > 1) {
-        try {
-            videoElem.playbackRate = rate;
-            maxRateFound = rate;
-            break;
-        } catch (error) {
-            // Error when setting unsupported playback rate, just continue with the loop
-        }
-        rate -= decrement;
-    }
-    if (!maxRateFound) { maxRateFound = 1; }
 }
 
 function waitForMetadata() {
@@ -91,23 +74,21 @@ function waitForMetadata() {
 
 async function skipToEnd() {
     await waitForMetadata();
-    const duration = videoElem.duration;
-    videoElem.currentTime = duration;
-    console.log(`[Fast Ads] Full Skipped ${duration}s ad`);
+    if (playerElem.classList.contains('ad-interrupting')) {
+        const duration = videoElem.duration;
+        videoElem.currentTime = duration;
+        console.log(`[Fast Ads] Full Skipped ${duration}s ad`);
+    }
 }
 
 function speedUpAds() {
     if (playerElem.classList.contains('ad-interrupting')) {
-        //if (!maxRateFound) { getMaxRate(); }
         if (!intervalID) { intervalID = setInterval(trySkipAd, 100); }
         adPlaying();
         skipToEnd();
-        //videoElem.playbackRate = maxRateFound;
-        //playerElem.mute();
     } else {
         closeInterval();
         vidPlaying();
-        //videoElem.playbackRate = 1;
     }
 }
 
@@ -171,22 +152,43 @@ const adSelectors = ['#fulfilled-layout',
                      'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog',
                      '[target-id="engagement-panel-ads"]'
                      ]
+const adSelectorString = adSelectors.join(',');
+let isThrottled = true;
 
-const selectorString = adSelectors.join(', ');
+function getElementSelector(element) {
+  if (element.id) {
+    return '#' + element.id;
+  } else if (element.className) {
+    return '.' + element.className.split(' ').join('.');
+  } else if (element.tagName) {
+    return element.tagName.toLowerCase();
+  }
+  return '';
+}
+
 function removeAds() {
-    const elementsToRemove = document.querySelectorAll(selectorString);
-    elementsToRemove.forEach(el => el.remove());
+    const elementsToRemove = document.querySelectorAll(adSelectorString);
+    elementsToRemove.forEach(el => {
+        console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
+        el.remove();
+    });
+    setTimeout(() => {
+        isThrottled = false;
+    }, 100);
 }
 
 function waitForAdsAndObserve() {
     adObserver = new MutationObserver(function(mutations) {
-        removeAds();
+        if (isThrottled === false) {
+            isThrottled = true;
+            removeAds();
+        }
     });
 
     // Initial check
     removeAds();
 
-    adObserver.observe(adLoc, {
+    adObserver.observe(document.body, {
         childList: true,
         subtree: true
     });
@@ -197,21 +199,18 @@ function mainFunction() {
     if (playerChangesObserver) {
         playerChangesObserver.disconnect();
         playerChangesObserver = null;
-        //console.log('[Fast Ads] Reset playerChangesObserver');
     }
     if (playerObserver) {
         playerObserver.disconnect();
         playerObserver = null;
-        //console.log('[Fast Ads] Reset playerObserver');
     }
     if (adObserver) {
         adObserver.disconnect();
         adObserver = null;
-        //console.log('[Fast Ads] Reset adObserver');
     }
 
     waitForVidLoc(waitForPlayerAndObserve);
-    waitForAdLoc(waitForAdsAndObserve);
+    waitForAdsAndObserve();
 }
 
 // Run script logic immediately for initial page load
@@ -227,7 +226,6 @@ function checkForURLChange() {
         lastPathStr = location.pathname;
         lastQueryStr = location.search;
         lastHashStr = location.hash;
-        //console.log('[Fast Ads] URL change detected');
         mainFunction();
     }
 }
