@@ -11,7 +11,6 @@
 // ==/UserScript==
 
 // Misc Parameters
-let maxRateFound = null;
 let playerElem = null;
 let videoElem = null;
 let intervalID = null;
@@ -19,7 +18,6 @@ let isHidden = false;
 let opacityVal = '0';
 
 // Observers
-let playerChangesObserver = null;
 let playerObserver = null;
 let adObserver = null;
 
@@ -72,14 +70,18 @@ function waitForMetadata() {
     });
 }
 
+let isSkipping = false;
 async function skipToEnd() {
     await waitForMetadata();
-    if (playerElem.classList.contains('ad-interrupting')) {
+    if (playerElem.classList.contains('ad-interrupting') && !isSkipping) {
+        isSkipping = true;
         const duration = videoElem.duration;
-        if (videoElem.currentTime < (duration - 0.5)) {
-            videoElem.currentTime = duration;
-            console.log(`[Fast Ads] Full Skipped ${duration}s ad`);
-        }
+        videoElem.currentTime = duration;
+        console.log(`[Fast Ads] Full Skipped ${Math.floor(duration)}s ad`);
+        setTimeout(() => {
+            isSkipping = false;
+            skipToEnd(); // A final self-call check after 250ms to see if an ad is still playing (i.e. second ad)
+        }, 250);
     }
 }
 
@@ -99,30 +101,14 @@ function waitForVidLoc(callback) {
     if (vidLoc) {
         callback();
     } else {
-        setTimeout(() => waitForVidLoc(callback), 10);
-    }
-}
-
-function waitForAdLoc(callback) {
-    adLoc = document.querySelector('#page-manager');
-    if (adLoc) {
-        callback();
-    } else {
-        setTimeout(() => waitForAdLoc(callback), 10);
+        setTimeout(() => waitForVidLoc(callback), 50);
     }
 }
 
 function observePlayerChanges() {
-    speedUpAds();
-    playerChangesObserver = new MutationObserver(function(mutations) {
-        speedUpAds();
-    });
-
-    // Start observing
-    playerChangesObserver.observe(playerElem, {
-        attributes: true,
-        attributeFilter: ['class'] // Only look for changes in the class attribute
-    });
+    speedUpAds(); // Initial check
+    videoElem.addEventListener('durationchange', speedUpAds);
+    videoElem.addEventListener('playing', speedUpAds);
 }
 
 function waitForPlayerAndObserve() {
@@ -155,8 +141,8 @@ const adSelectors = ['#fulfilled-layout',
                      '[target-id="engagement-panel-ads"]'
                      ]
 const adSelectorString = adSelectors.join(',');
-let isThrottled = true;
 
+let isThrottled = true;
 function getElementSelector(element) {
   if (element.id) {
     return '#' + element.id;
@@ -165,7 +151,7 @@ function getElementSelector(element) {
   } else if (element.tagName) {
     return element.tagName.toLowerCase();
   }
-  return '';
+  return 'misc ad';
 }
 
 function removeAds() {
@@ -198,9 +184,9 @@ function waitForAdsAndObserve() {
 
 function mainFunction() {
     'use strict';
-    if (playerChangesObserver) {
-        playerChangesObserver.disconnect();
-        playerChangesObserver = null;
+    if (videoElem) {
+        videoElem.removeEventListener('durationchange', speedUpAds);
+        videoElem.removeEventListener('playing', speedUpAds);
     }
     if (playerObserver) {
         playerObserver.disconnect();
