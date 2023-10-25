@@ -76,8 +76,10 @@ async function skipToEnd() {
     await waitForMetadata();
     if (playerElem.classList.contains('ad-interrupting')) {
         const duration = videoElem.duration;
-        videoElem.currentTime = duration;
-        console.log(`[Fast Ads] Full Skipped ${duration}s ad`);
+        if (videoElem.currentTime < (duration - 0.5)) {
+            videoElem.currentTime = duration;
+            console.log(`[Fast Ads] Full Skipped ${duration}s ad`);
+        }
     }
 }
 
