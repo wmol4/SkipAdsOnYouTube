@@ -13,20 +13,25 @@
 // Misc Parameters
 let playerElem = null;
 let videoElem = null;
-let intervalID = null;
 let isHidden = false;
 let opacityVal = '0';
+let wasMutedByAd = false;
+let originalMuteState = false;
 
 // Observers
+let playerChangesObserver = null;
 let playerObserver = null;
 let adObserver = null;
+let buttonObserver = null;
 
 // Locations for observers
 let vidLoc = null;
 let adLoc = null;
 
+// Gate flags
 let isThrottled = null;
 let isSkipping = null;
+let isClicking = null;
 
 function trySkipAd() {
     let skipButton = document.querySelector('.ytp-ad-skip-button');
@@ -50,13 +55,10 @@ function vidPlaying() {
         playerElem.style.opacity = '1';
         videoElem.style.opacity = '1';
         isHidden = false;
-    }
-}
-
-function closeInterval() {
-    if (intervalID) {
-        clearInterval(intervalID); // Stop clicking the skip ad button
-        intervalID = null;
+        if (wasMutedByAd) {
+            videoElem.muted = originalMuteState;
+            wasMutedByAd = false;
+        }
     }
 }
 
@@ -82,18 +84,21 @@ async function skipToEnd() {
         console.log(`[Fast Ads] Full Skipped ${Math.floor(duration)}s ad`);
         setTimeout(() => {
             isSkipping = false;
-            skipToEnd(); // A final self-call check after 250ms to see if an ad is still playing (i.e. second ad)
+            skipToEnd();
         }, 250);
     }
 }
 
 function speedUpAds() {
     if (playerElem.classList.contains('ad-interrupting')) {
-        if (!intervalID) { intervalID = setInterval(trySkipAd, 100); }
         adPlaying();
         skipToEnd();
+        if (!videoElem.muted) {
+            originalMuteState = videoElem.muted;
+            videoElem.muted = true;
+            wasMutedByAd = true;
+        }
     } else {
-        closeInterval();
         vidPlaying();
     }
 }
@@ -107,17 +112,51 @@ function waitForVidLoc(callback) {
     }
 }
 
+function clickSkipButton(button) {
+    if (button && !button.disabled && !isClicking) {
+        isClicking = true;
+        button.click();
+        if (playerElem.classList.contains('ad-interrupting')) { console.log('[Fast Ads] HUGE ad skip'); }
+        setTimeout(() => {
+            isClicking = false;
+        }, 250);
+    }
+}
+
+function observeButtonChanges() {
+    isClicking = false;
+    // Initial check
+    let skipButton = document.querySelector('.ytp-ad-skip-button');
+    clickSkipButton(skipButton);
+    buttonObserver = new MutationObserver(function(mutations) {
+        skipButton = skipButton || document.querySelector('.ytp-ad-skip-button');
+        clickSkipButton(skipButton);
+    });
+    buttonObserver.observe(playerElem, { childList: true, subtree: true });
+}
+
 function observePlayerChanges() {
     isSkipping = false;
+    observeButtonChanges(); // Start looking for the "skip ad" button
     speedUpAds(); // Initial check
-    videoElem.addEventListener('durationchange', speedUpAds);
     videoElem.addEventListener('playing', speedUpAds);
+
+    playerChangesObserver = new MutationObserver(function(mutations) {
+         speedUpAds();
+     });
+
+     // Start observing
+     playerChangesObserver.observe(playerElem, {
+         attributes: true,
+         attributeFilter: ['class'] // Only look for changes in the class attribute
+     });
 }
 
 function waitForPlayerAndObserve() {
     playerElem = document.querySelector('.html5-video-player');
     videoElem = document.querySelector('video');
     if (playerElem && videoElem) {
+        console.log('[Fast Ads] Player/Video already exist.');
         observePlayerChanges();
     } else {
         playerObserver = new MutationObserver(function(mutations) {
@@ -126,6 +165,7 @@ function waitForPlayerAndObserve() {
             if (playerElem && videoElem) {
                 observePlayerChanges();
                 playerObserver.disconnect();
+                console.log('[Fast Ads] Player/Video found, disconnected playerObserver.');
             }
         });
         playerObserver.observe(vidLoc, {
@@ -189,8 +229,11 @@ function waitForAdsAndObserve() {
 function mainFunction() {
     'use strict';
     if (videoElem) {
-        videoElem.removeEventListener('durationchange', speedUpAds);
         videoElem.removeEventListener('playing', speedUpAds);
+    }
+    if (playerChangesObserver) {
+        playerChangesObserver.disconnect();
+        playerChangesObserver = null;
     }
     if (playerObserver) {
         playerObserver.disconnect();
@@ -200,12 +243,15 @@ function mainFunction() {
         adObserver.disconnect();
         adObserver = null;
     }
+    if (buttonObserver) {
+        buttonObserver.disconnect();
+        buttonObserver = null;
+    }
 
     waitForVidLoc(waitForPlayerAndObserve);
     waitForAdsAndObserve();
 }
 
-// Run script logic immediately for initial page load
 mainFunction();
 
 let lastPathStr = location.pathname;
