@@ -46,31 +46,31 @@ function updateBadgeText() {
 }
 
 function speedUpAds() {
-    if (isProcessing) return;
+    if (isProcessing === true) { return; }
     isProcessing = true;
-    if (playerElem.classList.contains('ad-interrupting')) {
+    if (playerElem.classList.contains('ad-interrupting') || playerElem.classList.contains('ad-showing')) {
         // If just switching from a video to an ad, hide the video/player and set isHidden to true
         if (playerElem.style.opacity === '1') {
             playerElem.style.opacity = '0';
             videoElem.style.opacity = '0';
             console.log('[Fast Ads] Get blocked, kid');
-            // Start clicking the skip ad button
-            if (!intervalID1) {
-                intervalID1 = setInterval(clickSkipButton, 50);
-            }
-            // Start skipping to the end of the ad
-            if (!intervalID2) {
-                intervalID2 = setInterval(skipAd, 50);
-            }
-            // If the video isn't muted, mute it and make note to unmute it later
-            // However, if the video is muted, we don't need to do anything
-            if (!videoElem.muted) {
-                originalMuteState = videoElem.muted;
-                videoElem.muted = true;
-                wasMutedByAd = true;
-            }
             counter ++;
             updateBadgeText();
+        }
+        // Start clicking the skip ad button
+        if (!intervalID1) {
+            intervalID1 = setInterval(clickSkipButton, 50);
+        }
+        // Start skipping to the end of the ad
+        if (!intervalID2) {
+            intervalID2 = setInterval(skipAd, 50);
+        }
+        // If the video isn't muted, mute it and make note to unmute it later
+        // However, if the video is muted, we don't need to do anything
+        if (!videoElem.muted) {
+            originalMuteState = videoElem.muted;
+            videoElem.muted = true;
+            wasMutedByAd = true;
         }
     } else {
         // If siwtching from an ad to a video, show the video/player and set isHidden to false
@@ -78,18 +78,18 @@ function speedUpAds() {
         if (playerElem.style.opacity !== '1') {
             playerElem.style.opacity = '1';
             videoElem.style.opacity = '1';
-            if (intervalID1) {
-                clearInterval(intervalID1);
-                intervalID1 = null;
-            }
-            if (intervalID2) {
-                clearInterval(intervalID2);
-                intervalID2 = null;
-            }
-            if (wasMutedByAd) {
-                videoElem.muted = originalMuteState;
-                wasMutedByAd = false;
-            }
+        }
+        if (intervalID1) {
+            clearInterval(intervalID1);
+            intervalID1 = null;
+        }
+        if (intervalID2) {
+            clearInterval(intervalID2);
+            intervalID2 = null;
+        }
+        if (wasMutedByAd) {
+            videoElem.muted = originalMuteState;
+            wasMutedByAd = false;
         }
     }
     isProcessing = false;
@@ -103,16 +103,12 @@ function clickSkipButton() {
 }
 
 function skipAd() {
-    if (videoElem.readyState >= 1 && playerElem.classList.contains('ad-interrupting')) {
+    if (videoElem.readyState >= 1 && (playerElem.classList.contains('ad-interrupting') || playerElem.classList.contains('ad-showing'))) {
         videoElem.currentTime = videoElem.duration;
     }
 }
 
 function observePlayerChanges() {
-    if (intervalID) {
-        clearInterval(intervalID);
-        intervalID = null;
-    }
     intervalID = setInterval(speedUpAds, 100);
 
     // Trigger speedUpAds when playerElem's class attributes change
@@ -131,7 +127,7 @@ function waitForPlayerAndObserve() {
     playerElem = document.querySelector('.html5-video-player');
     videoElem = document.querySelector('video');
     if (playerElem && videoElem) {
-        console.log('[Fast Ads] Player/Video already exist.');
+        //console.log('[Fast Ads] Player/Video already exist.');
         observePlayerChanges();
     } else {
         playerObserver = new MutationObserver(function(mutations) {
@@ -140,7 +136,7 @@ function waitForPlayerAndObserve() {
             if (playerElem && videoElem) {
                 observePlayerChanges();
                 playerObserver.disconnect();
-                console.log('[Fast Ads] Player/Video found, disconnected playerObserver.');
+                //console.log('[Fast Ads] Player/Video found, disconnected playerObserver.');
             }
         });
         playerObserver.observe(vidLoc, {
@@ -175,7 +171,7 @@ function removeAds() {
     if (!isThrottled && elementsToRemove.length !== 0) {
         isThrottled = true;
         elementsToRemove.forEach(el => {
-            console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
+            //console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
             el.remove();
             counter ++;
             updateBadgeText();
@@ -232,6 +228,10 @@ function mainFunction() {
         adObserver.disconnect();
         adObserver = null;
         //console.log('[Fast Ads] Reset adObserver');
+    }
+    if (intervalID) {
+        clearInterval(intervalID);
+        intervalID = null;
     }
 
     waitForBody(bodyFunction);
