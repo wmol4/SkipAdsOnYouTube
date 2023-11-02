@@ -13,8 +13,6 @@
 // Misc Parameters
 let playerElem = null;
 let videoElem = null;
-let isHidden = false;
-let opacityVal = '0';
 let wasMutedByAd = false;
 let originalMuteState = false;
 
@@ -22,130 +20,106 @@ let originalMuteState = false;
 let playerChangesObserver = null;
 let playerObserver = null;
 let adObserver = null;
-let buttonObserver = null;
+let intervalID = null;
+let intervalID1 = null;
+let intervalID2 = null;
 
 // Locations for observers
 let vidLoc = null;
-let adLoc = null;
 
 // Gate flags
 let isThrottled = null;
-let isSkipping = null;
-let isClicking = null;
+let isProcessing = false;
 
-function trySkipAd() {
-    let skipButton = document.querySelector('.ytp-ad-skip-button');
-    if (skipButton && !skipButton.disabled) {
-        skipButton.click();
-        console.log('[Fast Ads] HUGE ad skip');
+// Badge counter
+let counter = 0;
+function updateBadgeText() {
+    let badgeText = null;
+    if (counter < 1000) {
+        badgeText = counter.toString();
+    } else if (counter < 10000) {
+        badgeText = Math.floor(counter / 1000) + "K";
+    } else {
+        badgeText = ">10K";
     }
-}
-
-function adPlaying() {
-    if (isHidden === false || playerElem.style.opacity === '1') {
-        playerElem.style.opacity = opacityVal;
-        videoElem.style.opacity = opacityVal;
-        console.log('[Fast Ads] Get blocked, kid');
-        isHidden = true;
-    }
-}
-
-function vidPlaying() {
-    if (isHidden === true || playerElem.style.opacity !== '1') {
-        playerElem.style.opacity = '1';
-        videoElem.style.opacity = '1';
-        isHidden = false;
-        if (wasMutedByAd) {
-            videoElem.muted = originalMuteState;
-            wasMutedByAd = false;
-        }
-    }
-}
-
-function waitForMetadata() {
-    return new Promise((resolve, reject) => {
-        function checkReadyState() {
-            if (videoElem.readyState >= 1) {
-                resolve();
-            } else {
-                setTimeout(checkReadyState, 10);
-            }
-        }
-        checkReadyState();
-    });
-}
-
-async function skipToEnd() {
-    await waitForMetadata();
-    if (playerElem.classList.contains('ad-interrupting') && !isSkipping) {
-        isSkipping = true;
-        const duration = videoElem.duration;
-        videoElem.currentTime = duration;
-        console.log(`[Fast Ads] Full Skipped ${Math.floor(duration)}s ad`);
-        setTimeout(() => {
-            isSkipping = false;
-            skipToEnd();
-        }, 250);
-    }
+    //chrome.runtime.sendMessage({type: "updateBadge", sendText: badgeText});
 }
 
 function speedUpAds() {
+    if (isProcessing) return;
+    isProcessing = true;
     if (playerElem.classList.contains('ad-interrupting')) {
-        adPlaying();
-        skipToEnd();
-        if (!videoElem.muted) {
-            originalMuteState = videoElem.muted;
-            videoElem.muted = true;
-            wasMutedByAd = true;
+        // If just switching from a video to an ad, hide the video/player and set isHidden to true
+        if (playerElem.style.opacity === '1') {
+            playerElem.style.opacity = '0';
+            videoElem.style.opacity = '0';
+            console.log('[Fast Ads] Get blocked, kid');
+            // Start clicking the skip ad button
+            if (!intervalID1) {
+                intervalID1 = setInterval(clickSkipButton, 50);
+            }
+            // Start skipping to the end of the ad
+            if (!intervalID2) {
+                intervalID2 = setInterval(skipAd, 50);
+            }
+            // If the video isn't muted, mute it and make note to unmute it later
+            // However, if the video is muted, we don't need to do anything
+            if (!videoElem.muted) {
+                originalMuteState = videoElem.muted;
+                videoElem.muted = true;
+                wasMutedByAd = true;
+            }
+            counter ++;
+            updateBadgeText();
         }
     } else {
-        vidPlaying();
+        // If siwtching from an ad to a video, show the video/player and set isHidden to false
+        // Also if the video wasn't muted before the ad, unmute the video
+        if (playerElem.style.opacity !== '1') {
+            playerElem.style.opacity = '1';
+            videoElem.style.opacity = '1';
+            if (intervalID1) {
+                clearInterval(intervalID1);
+                intervalID1 = null;
+            }
+            if (intervalID2) {
+                clearInterval(intervalID2);
+                intervalID2 = null;
+            }
+            if (wasMutedByAd) {
+                videoElem.muted = originalMuteState;
+                wasMutedByAd = false;
+            }
+        }
     }
+    isProcessing = false;
 }
 
-function waitForVidLoc(callback) {
-    vidLoc = document.body; // Needs to be the body because sometimes the ads load/play before the structure has settled
-    if (vidLoc) {
-        callback();
-    } else {
-        setTimeout(() => waitForVidLoc(callback), 50);
-    }
-}
-
-function clickSkipButton(button) {
-    if (button && !button.disabled && !isClicking) {
-        isClicking = true;
+function clickSkipButton() {
+    let button = document.querySelector('.ytp-ad-skip-button');
+    if (button && !button.disabled) {
         button.click();
-        if (playerElem.classList.contains('ad-interrupting')) { console.log('[Fast Ads] HUGE ad skip'); }
-        setTimeout(() => {
-            isClicking = false;
-        }, 250);
     }
 }
 
-function observeButtonChanges() {
-    isClicking = false;
-    // Initial check
-    let skipButton = document.querySelector('.ytp-ad-skip-button');
-    clickSkipButton(skipButton);
-    buttonObserver = new MutationObserver(function(mutations) {
-        skipButton = skipButton || document.querySelector('.ytp-ad-skip-button');
-        clickSkipButton(skipButton);
-    });
-    buttonObserver.observe(playerElem, { childList: true, subtree: true });
+function skipAd() {
+    if (videoElem.readyState >= 1 && playerElem.classList.contains('ad-interrupting')) {
+        videoElem.currentTime = videoElem.duration;
+    }
 }
 
 function observePlayerChanges() {
-    isSkipping = false;
-    observeButtonChanges(); // Start looking for the "skip ad" button
-    speedUpAds(); // Initial check
-    videoElem.addEventListener('playing', speedUpAds);
+    if (intervalID) {
+        clearInterval(intervalID);
+        intervalID = null;
+    }
+    intervalID = setInterval(speedUpAds, 100);
 
-    playerChangesObserver = new MutationObserver(function(mutations) {
-         speedUpAds();
-     });
+    // Trigger speedUpAds when playerElem's class attributes change
+    playerChangesObserver = new MutationObserver(mutations => {
+        speedUpAds();
+    });
 
-     // Start observing
      playerChangesObserver.observe(playerElem, {
          attributes: true,
          attributeFilter: ['class'] // Only look for changes in the class attribute
@@ -153,6 +127,7 @@ function observePlayerChanges() {
 }
 
 function waitForPlayerAndObserve() {
+    // Triggers observePlayerChanges when playerElem and videoElem exist
     playerElem = document.querySelector('.html5-video-player');
     videoElem = document.querySelector('video');
     if (playerElem && videoElem) {
@@ -160,8 +135,8 @@ function waitForPlayerAndObserve() {
         observePlayerChanges();
     } else {
         playerObserver = new MutationObserver(function(mutations) {
-            playerElem = playerElem || document.querySelector('.html5-video-player');
-            videoElem = videoElem || document.querySelector('video');
+            playerElem = document.querySelector('.html5-video-player');
+            videoElem = document.querySelector('video');
             if (playerElem && videoElem) {
                 observePlayerChanges();
                 playerObserver.disconnect();
@@ -180,9 +155,8 @@ const adSelectors = ['#fulfilled-layout',
                      '#masthead-ad',
                      '#below > ytd-merch-shelf-renderer',
                      '#movie_player > div.ytp-paid-content-overlay',
-                     'body > ytd-app > ytd-popup-container > tp-yt-paper-dialog',
                      '[target-id="engagement-panel-ads"]'
-                     ]
+                     ];
 const adSelectorString = adSelectors.join(',');
 
 function getElementSelector(element) {
@@ -203,6 +177,8 @@ function removeAds() {
         elementsToRemove.forEach(el => {
             console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
             el.remove();
+            counter ++;
+            updateBadgeText();
         });
         setTimeout(() => {
             isThrottled = false;
@@ -226,30 +202,39 @@ function waitForAdsAndObserve() {
     });
 }
 
+function bodyFunction() {
+    waitForPlayerAndObserve();
+    waitForAdsAndObserve();
+}
+
+function waitForBody(callback) {
+    vidLoc = document.body; // Needs to be the body because sometimes the ads load/play before the structure has settled
+    if (vidLoc) {
+        callback();
+    } else {
+        setTimeout(() => waitForBody(callback), 50);
+    }
+}
+
 function mainFunction() {
     'use strict';
-    if (videoElem) {
-        videoElem.removeEventListener('playing', speedUpAds);
-    }
     if (playerChangesObserver) {
         playerChangesObserver.disconnect();
         playerChangesObserver = null;
+        //console.log('[Fast Ads] Reset playerChangesObserver');
     }
     if (playerObserver) {
         playerObserver.disconnect();
         playerObserver = null;
+        //console.log('[Fast Ads] Reset playerObserver');
     }
     if (adObserver) {
         adObserver.disconnect();
         adObserver = null;
-    }
-    if (buttonObserver) {
-        buttonObserver.disconnect();
-        buttonObserver = null;
+        //console.log('[Fast Ads] Reset adObserver');
     }
 
-    waitForVidLoc(waitForPlayerAndObserve);
-    waitForAdsAndObserve();
+    waitForBody(bodyFunction);
 }
 
 mainFunction();
@@ -257,8 +242,6 @@ mainFunction();
 let lastPathStr = location.pathname;
 let lastQueryStr = location.search;
 let lastHashStr = location.hash;
-
-// Polling logic to detect URL changes
 function checkForURLChange() {
     if (lastPathStr !== location.pathname || lastQueryStr !== location.search || lastHashStr !== location.hash) {
         lastPathStr = location.pathname;
