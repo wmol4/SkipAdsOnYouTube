@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Fast Ads
+// @name         Fast Ads2
 // @namespace    http://tampermonkey.net/
 // @version      0.1
 // @description  Gotta go fast!
@@ -20,8 +20,8 @@ let originalMuteState = false;
 let playerChangesObserver = null;
 let playerObserver = null;
 let adObserver = null;
-let intervalID1 = null;
-let intervalID2 = null;
+let isListenerAdded = false;
+let mainRunning = false;
 
 // Gate flags
 let isThrottled = null;
@@ -41,25 +41,31 @@ function updateBadgeText() {
     //chrome.runtime.sendMessage({type: "updateBadge", sendText: badgeText});
 }
 
+function hasAnyClass(element, classes) {
+    // Check if a class from classes exists in element
+    return classes.some(cls => element.classList.contains(cls));
+}
+
+function checkAdProgressBar() {
+    let element = document.querySelector("#movie_player > div.ytp-ad-persistent-progress-bar-container");
+    if (element) {
+        let computedStyle = window.getComputedStyle(element);
+        return computedStyle.display !== 'none';
+    }
+    return false;
+}
+
 function speedUpAds() {
     if (isProcessing === true) { return; }
     isProcessing = true;
-    if (playerElem.classList.contains('ad-interrupting') || playerElem.classList.contains('ad-showing')) {
+    if (hasAnyClass(playerElem, ['ad-interrupting', 'ad-showing']) || checkAdProgressBar()) {
         // If just switching from a video to an ad, hide the video/player and set isHidden to true
-        if (playerElem.style.opacity === '1') {
+        if (playerElem.style.opacity === '1' || videoElem.style.opacity === '1') {
             //console.log('[Fast Ads] Get blocked, kid');
             playerElem.style.opacity = '0';
             videoElem.style.opacity = '0';
             counter ++;
             updateBadgeText();
-        }
-        // Start clicking the skip ad button
-        if (!intervalID1) {
-            intervalID1 = setInterval(clickSkipButton, 100);
-        }
-        // Start skipping to the end of the ad
-        if (!intervalID2) {
-            intervalID2 = setInterval(skipAd, 100);
         }
         // If the video isn't muted, mute it and make note to unmute it later
         // However, if the video is muted, we don't need to do anything
@@ -68,28 +74,35 @@ function speedUpAds() {
             videoElem.muted = true;
             wasMutedByAd = true;
         }
+        // Event listener to click skip ad button and skip to the end of the ad
+        if (!isListenerAdded) {
+            videoElem.addEventListener('timeupdate', onTimeUpdate);
+            isListenerAdded = true;
+        }
     } else {
         // If siwtching from an ad to a video, show the video/player and set isHidden to false
         // Also if the video wasn't muted before the ad, unmute the video
-        if (playerElem.style.opacity !== '1') {
+        if (playerElem.style.opacity !== '1' || videoElem.style.opacity !== '1') {
             playerElem.style.opacity = '1';
             videoElem.style.opacity = '1';
-        }
-        if (intervalID1) {
-            clearInterval(intervalID1);
-            intervalID1 = null;
-        }
-        if (intervalID2) {
-            clearInterval(intervalID2);
-            intervalID2 = null;
         }
         if (wasMutedByAd) {
             videoElem.muted = originalMuteState;
             wasMutedByAd = false;
         }
+        if (isListenerAdded) {
+            videoElem.removeEventListener('timeupdate', onTimeUpdate);
+            isListenerAdded = false;
+        }
     }
     isProcessing = false;
 }
+
+function onTimeUpdate() {
+    skipAd();
+    clickSkipButton();
+}
+
 
 function clickSkipButton() {
     // Click the skip ad button if it exists and is enabled
@@ -99,10 +112,6 @@ function clickSkipButton() {
     }
 }
 
-function hasAnyClass(element, classes) {
-    // Check if a class from classes exists in element
-    return classes.some(cls => element.classList.contains(cls));
-}
 
 function skipAd() {
     // Set currentTime to duration if metadata exists and an ad is playing
@@ -113,14 +122,14 @@ function skipAd() {
     }
 }
 
-function waitForVideo() {
+function waitForVideo(callback) {
     // Assumes playerElem exists, returns once videoElem exists
     videoElem = playerElem.querySelector('video');
     if (videoElem) {
         //console.log('[Fast Ads] Redefined videoElem');
-        return;
+        callback();
     } else {
-        setTimeout(() => waitForVideo(), 50);
+        setTimeout(() => waitForVideo(callback), 50);
     }
 }
 
@@ -132,8 +141,8 @@ function observePlayerChanges() {
             if (mutation.type === 'childList') {
                 if (!playerElem.contains(videoElem)) {
                     //console.log('[Fast Ads] videoElem missing from playerElem');
-                    waitForVideo();
-                    speedUpAds();
+                    waitForVideo(speedUpAds);
+                    //speedUpAds();
                 }
             } else if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
                 speedUpAds();
@@ -152,16 +161,18 @@ function observePlayerChanges() {
 function waitForPlayerAndObserve() {
     // Triggers observePlayerChanges when playerElem and videoElem exist
     playerElem = document.querySelector('.html5-video-player');
-    videoElem = document.querySelector('video');
-    if (playerElem && videoElem) {
+    if (playerElem) {
+        waitForVideo(observePlayerChanges);
         //console.log('[Fast Ads] Player/Video already exist.');
-        observePlayerChanges();
     } else {
         playerObserver = new MutationObserver(function(mutations) {
             playerElem = playerElem || document.querySelector('.html5-video-player');
-            if (playerElem) {
-                waitForVideo();
-                observePlayerChanges();
+            if (playerElem) { // First time load
+                videoElem = document.querySelector('video');
+                if (videoElem){ // Fires even if the video isn't a child of player yet
+                    speedUpAds();
+                }
+                waitForVideo(observePlayerChanges);
                 playerObserver.disconnect();
                 //console.log('[Fast Ads] Player/Video found, disconnected playerObserver.');
             }
@@ -228,8 +239,11 @@ function waitForAdsAndObserve() {
 }
 
 function bodyFunction() {
-    waitForPlayerAndObserve();
-    waitForAdsAndObserve();
+    if (!mainRunning) {
+        mainRunning = true;
+        waitForPlayerAndObserve();
+        waitForAdsAndObserve();
+    }
 }
 
 function waitForBody(callback) {
@@ -242,6 +256,7 @@ function waitForBody(callback) {
 }
 
 function cleanUp() {
+    counter = 0;
     // Reset the playerChangesObserver
     if (playerChangesObserver) {
         playerChangesObserver.disconnect();
@@ -257,21 +272,17 @@ function cleanUp() {
         adObserver.disconnect();
         adObserver = null;
     }
-    // Clear the interval which calls clickSkipButton
-    if (intervalID1) {
-        clearInterval(intervalID1);
-        intervalID1 = null;
+    // Clear event listeners
+    if (isListenerAdded) {
+        videoElem.removeEventListener('timeupdate', onTimeUpdate);
+        isListenerAdded = false;
     }
-    // Clear the interval which calls skipAd
-    if (intervalID2) {
-        clearInterval(intervalID2);
-        intervalID2 = null;
-    }
+    mainRunning = false;
 }
 
 function mainFunction() {
     'use strict';
-    // Clear all of the observers and intervals
+    // Clear all of the observers, intervals, event listeners
     cleanUp();
     // Run the script
     waitForBody(bodyFunction);
@@ -279,18 +290,28 @@ function mainFunction() {
 
 mainFunction();
 
+let lastURL = location.href;
 let lastPathStr = location.pathname;
 let lastQueryStr = location.search;
 let lastHashStr = location.hash;
 function checkForURLChange() {
+    let newPathStr = location.pathname;
+    let newQueryStr = location.search;
+    let newHashStr = location.hash;
+    let newURL = location.href;
     // If the URL changes, reset/restart the script
-    if (lastPathStr !== location.pathname || lastQueryStr !== location.search || lastHashStr !== location.hash) {
-        lastPathStr = location.pathname;
-        lastQueryStr = location.search;
-        lastHashStr = location.hash;
+    if (lastPathStr !== newPathStr || lastQueryStr !== newQueryStr || lastHashStr !== newHashStr || lastURL !== newURL) {
+        lastPathStr = newPathStr;
+        lastQueryStr = newQueryStr;
+        lastHashStr = newHashStr;
+        lastURL = newURL;
         mainFunction();
     }
 }
 
 // Set an interval to continuously check for URL changes
 setInterval(checkForURLChange, 1000);
+
+
+
+
