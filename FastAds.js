@@ -22,6 +22,7 @@ let playerObserver = null;
 let adObserver = null;
 let isListenerAdded = false;
 let mainRunning = false;
+let intervalID = null;
 
 // Gate flags
 let isThrottled = null;
@@ -61,9 +62,9 @@ function speedUpAds() {
     if (hasAnyClass(playerElem, ['ad-interrupting', 'ad-showing']) || checkAdProgressBar()) {
         // If just switching from a video to an ad, hide the video/player and set isHidden to true
         if (playerElem.style.opacity === '1' || videoElem.style.opacity === '1') {
-            //console.log('[Fast Ads] Get blocked, kid');
-            playerElem.style.opacity = '0';
-            videoElem.style.opacity = '0';
+            console.log('[Fast Ads] Get blocked, kid');
+            playerElem.style.opacity = '0.1';
+            videoElem.style.opacity = '0.1';
             counter ++;
             updateBadgeText();
         }
@@ -79,8 +80,11 @@ function speedUpAds() {
             videoElem.addEventListener('timeupdate', onTimeUpdate);
             isListenerAdded = true;
         }
+        if (!intervalID) {
+            intervalID = setInterval(clickSkipButton, 250);
+        }
     } else {
-        // If siwtching from an ad to a video, show the video/player and set isHidden to false
+        // If switching from an ad to a video, show the video/player and set isHidden to false
         // Also if the video wasn't muted before the ad, unmute the video
         if (playerElem.style.opacity !== '1' || videoElem.style.opacity !== '1') {
             playerElem.style.opacity = '1';
@@ -94,24 +98,50 @@ function speedUpAds() {
             videoElem.removeEventListener('timeupdate', onTimeUpdate);
             isListenerAdded = false;
         }
+        if (intervalID) {
+            clearInterval(intervalID);
+            intervalID = null;
+        }
     }
     isProcessing = false;
 }
 
 function onTimeUpdate() {
     skipAd();
-    clickSkipButton();
+    //clickSkipButton();
 }
 
+function findSkipButton() {
+    const adModules = document.querySelectorAll('.ytp-ad-module');
+    for (let module of adModules) {
+        const skipButton = module.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern');
+        if (skipButton && skipButton.textContent.includes('Skip')) {
+            return skipButton;
+        }
+    }
+    return null;
+}
 
 function clickSkipButton() {
-    // Click the skip ad button if it exists and is enabled
-    const button = document.querySelector('.ytp-ad-skip-button');
-    if (button && !button.disabled) {
-        button.click();
-    }
-}
+    // Look for any class with "ad-skip" in it
+    const potentialButtons = document.querySelector('#movie_player').querySelectorAll('[class*="ad-skip"]');
+    const uniqueButtons = new Set();
 
+    // query for the html button element for each potential button class
+    // add it into a set so we only have unique buttons left
+    potentialButtons.forEach(element => {
+        const button = element.querySelector('button');
+        if (button && !button.disabled) {
+            uniqueButtons.add(button);
+        }
+    });
+
+    // for each remaining unique button, click it
+    uniqueButtons.forEach(button => {
+        button.click();
+        console.log(`[Fast Ads] Clicked ${'.' + button.className.split(' ').join('.')}`);
+    });
+}
 
 function skipAd() {
     // Set currentTime to duration if metadata exists and an ad is playing
@@ -126,7 +156,7 @@ function waitForVideo(callback) {
     // Assumes playerElem exists, returns once videoElem exists
     videoElem = playerElem.querySelector('video');
     if (videoElem) {
-        //console.log('[Fast Ads] Redefined videoElem');
+        console.log('[Fast Ads] Redefined videoElem');
         callback();
     } else {
         setTimeout(() => waitForVideo(callback), 50);
@@ -140,7 +170,7 @@ function observePlayerChanges() {
         for (let mutation of mutations) {
             if (mutation.type === 'childList') {
                 if (!playerElem.contains(videoElem)) {
-                    //console.log('[Fast Ads] videoElem missing from playerElem');
+                    console.log('[Fast Ads] videoElem missing from playerElem');
                     waitForVideo(speedUpAds);
                     //speedUpAds();
                 }
@@ -163,7 +193,7 @@ function waitForPlayerAndObserve() {
     playerElem = document.querySelector('.html5-video-player');
     if (playerElem) {
         waitForVideo(observePlayerChanges);
-        //console.log('[Fast Ads] Player/Video already exist.');
+        console.log('[Fast Ads] Player/Video already exist.');
     } else {
         playerObserver = new MutationObserver(function(mutations) {
             playerElem = playerElem || document.querySelector('.html5-video-player');
@@ -174,7 +204,7 @@ function waitForPlayerAndObserve() {
                 }
                 waitForVideo(observePlayerChanges);
                 playerObserver.disconnect();
-                //console.log('[Fast Ads] Player/Video found, disconnected playerObserver.');
+                console.log('[Fast Ads] Player/Video found, disconnected playerObserver.');
             }
         });
         playerObserver.observe(document.body, {
@@ -211,7 +241,7 @@ function removeAds() {
     if (!isThrottled && elementsToRemove.length !== 0) {
         isThrottled = true;
         elementsToRemove.forEach(el => {
-            //console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
+            console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
             el.remove();
             counter ++;
             updateBadgeText();
@@ -277,6 +307,10 @@ function cleanUp() {
         videoElem.removeEventListener('timeupdate', onTimeUpdate);
         isListenerAdded = false;
     }
+    if (intervalID) {
+            clearInterval(intervalID);
+            intervalID = null;
+        }
     mainRunning = false;
 }
 
