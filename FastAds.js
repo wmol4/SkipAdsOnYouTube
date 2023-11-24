@@ -324,27 +324,18 @@ function mainFunction() {
 
 mainFunction();
 
-let lastURL = location.href;
-let lastPathStr = location.pathname;
-let lastQueryStr = location.search;
-let lastHashStr = location.hash;
-function checkForURLChange() {
-    let newPathStr = location.pathname;
-    let newQueryStr = location.search;
-    let newHashStr = location.hash;
-    let newURL = location.href;
-    // If the URL changes, reset/restart the script
-    if (lastPathStr !== newPathStr || lastQueryStr !== newQueryStr || lastHashStr !== newHashStr || lastURL !== newURL) {
-        lastPathStr = newPathStr;
-        lastQueryStr = newQueryStr;
-        lastHashStr = newHashStr;
-        lastURL = newURL;
+function titleChange() {
+    const observer = new MutationObserver(mutations => {
+        console.log('[Fast Ads] Restarting');
         mainFunction();
-    }
+    });
+
+    const titleElement = document.querySelector('title');
+    const config = { childList: true };
+    observer.observe(titleElement, config);
 }
 
-// Set an interval to continuously check for URL changes
-setInterval(checkForURLChange, 1000);
+waitForBody(titleChange);
 
 
 
