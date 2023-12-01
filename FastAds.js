@@ -28,9 +28,10 @@ let intervalID = null;
 let isThrottled = null;
 let isProcessing = false;
 
-// Badge counter
 let counter = 0;
 function updateBadgeText() {
+    // Badge counter, only needed when used as an extension, not a
+    // tampermonkey script
     let badgeText = null;
     if (counter < 1000) {
         badgeText = counter.toString();
@@ -63,8 +64,8 @@ function speedUpAds() {
         // If just switching from a video to an ad, hide the video/player and set isHidden to true
         if (playerElem.style.opacity === '1' || videoElem.style.opacity === '1') {
             console.log('[Fast Ads] Get blocked, kid');
-            playerElem.style.opacity = '0.1';
-            videoElem.style.opacity = '0.1';
+            playerElem.style.opacity = '0.2';
+            videoElem.style.opacity = '0.2';
             counter ++;
             updateBadgeText();
         }
@@ -98,7 +99,8 @@ function speedUpAds() {
             videoElem.removeEventListener('timeupdate', onTimeUpdate);
             isListenerAdded = false;
         }
-        if (intervalID) {
+        // Only stop clicking skip button if the video is playing
+        if (intervalID && !videoElem.paused && !videoElem.ended) {
             clearInterval(intervalID);
             intervalID = null;
         }
@@ -108,38 +110,17 @@ function speedUpAds() {
 
 function onTimeUpdate() {
     skipAd();
-    //clickSkipButton();
-}
-
-function findSkipButton() {
-    const adModules = document.querySelectorAll('.ytp-ad-module');
-    for (let module of adModules) {
-        const skipButton = module.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern');
-        if (skipButton && skipButton.textContent.includes('Skip')) {
-            return skipButton;
-        }
-    }
-    return null;
 }
 
 function clickSkipButton() {
-    // Look for any class with "ad-skip" in it
-    const potentialButtons = document.querySelector('#movie_player').querySelectorAll('[class*="ad-skip"]');
-    const uniqueButtons = new Set();
+    const skipButtons = document.querySelectorAll('[class*="ad-skip"] button');
+    const uniqueButtons = new Set(skipButtons);
 
-    // query for the html button element for each potential button class
-    // add it into a set so we only have unique buttons left
-    potentialButtons.forEach(element => {
-        const button = element.querySelector('button');
-        if (button && !button.disabled) {
-            uniqueButtons.add(button);
-        }
-    });
-
-    // for each remaining unique button, click it
     uniqueButtons.forEach(button => {
-        button.click();
-        console.log(`[Fast Ads] Clicked ${'.' + button.className.split(' ').join('.')}`);
+        if (!button.disabled) {
+            button.click();
+            console.log(`[Fast Ads] Clicked ${'.' + button.className.split(' ').join('.')}`);
+        }
     });
 }
 
@@ -188,6 +169,39 @@ function observePlayerChanges() {
      });
 }
 
+function seekEvent(e) {
+    // Ensure the event doesn't fire in input fields
+    if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') {
+        return;
+    }
+
+    const video = playerElem.querySelector('video');
+    if (!video) {
+        return;
+    }
+
+    // A and D seek back/forward 30s
+    // Q and E seek back/forward 60s
+    switch (e.key) {
+        case 'a': // seeking backwards 30s
+            video.currentTime -= 30;
+            console.log('[Fast Ads] Seeked -30s');
+            break;
+        case 'd': // seeking forward 30s
+            video.currentTime += 30;
+            console.log('[Fast Ads] Seeked +30s');
+            break;
+        case 'q': // seeking backwards 60s
+            video.currentTime -= 60;
+            console.log('[Fast Ads] Seeked -60s');
+            break;
+        case 'e': // seeking forward 60s
+            video.currentTime += 60;
+            console.log('[Fast Ads] Seeked +60s');
+            break;
+    }
+}
+
 function waitForPlayerAndObserve() {
     // Triggers observePlayerChanges when playerElem and videoElem exist
     playerElem = document.querySelector('.html5-video-player');
@@ -219,8 +233,20 @@ const adSelectors = ['#fulfilled-layout',
                      '#masthead-ad',
                      '#below > ytd-merch-shelf-renderer',
                      '#movie_player > div.ytp-paid-content-overlay',
-                     '[target-id="engagement-panel-ads"]'
+                     '[target-id="engagement-panel-ads"]',
+
+                     "#dismissible[class*='banner']",
+                     "#main[class*='promo-renderer']",
                      ];
+
+// Untested selectors:
+//'#background-content',
+//'div[class*="ad-container"]',
+//'section[class*="ad-area"]',
+//'aside[id*="sidebar-ads"]',
+//'div[class*="ad"][role="advertisement"]',
+//'[class^="ad-"], [class$="-ad"], [class*="-ad-"]'
+                     
 const adSelectorString = adSelectors.join(',');
 
 function getElementSelector(element) {
@@ -251,6 +277,8 @@ function removeAds() {
             removeAds(); // Recursive calls until elementsToRemove is exhausted
         }, 100);
     }
+    // Temp placement for this function
+    changeLogoLink();
 }
 
 function waitForAdsAndObserve() {
@@ -268,11 +296,32 @@ function waitForAdsAndObserve() {
     });
 }
 
+function changeLogoLink() {
+    // When a special promotion is going on, clicking the top left youtube
+    // icon will take you back to the default home screen, not the promotional
+    // homescreen (though this won't be reflected in the url).
+    document.querySelectorAll("#logo a").forEach(function(el) {
+        el.setAttribute('href', 'https://www.youtube.com');
+        try {
+            el.data.browseEndpoint.params = '';
+        } catch (error) {
+            // pass
+        }
+    });
+}
+
 function bodyFunction() {
     if (!mainRunning) {
         mainRunning = true;
         waitForPlayerAndObserve();
         waitForAdsAndObserve();
+        document.addEventListener('keydown', seekEvent);
+
+        // Sometimes an non-playing ad covers the video before anything starts playing,
+        // so start clicking the skip button now
+        if (!intervalID) {
+            intervalID = setInterval(clickSkipButton, 250);
+        }
     }
 }
 
@@ -312,6 +361,7 @@ function cleanUp() {
             intervalID = null;
         }
     mainRunning = false;
+    document.removeEventListener('keydown', seekEvent);
 }
 
 function mainFunction() {
@@ -325,6 +375,7 @@ function mainFunction() {
 mainFunction();
 
 function titleChange() {
+    // Reset everything when the title changes
     const observer = new MutationObserver(mutations => {
         console.log('[Fast Ads] Restarting');
         mainFunction();
@@ -336,7 +387,6 @@ function titleChange() {
 }
 
 waitForBody(titleChange);
-
 
 
 
