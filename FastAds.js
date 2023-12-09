@@ -10,6 +10,9 @@
 // @run-at       document-body
 // ==/UserScript==
 
+// Bookmarklet to skip video ads:
+//javascript:function f(){let b=document.querySelector("[class*='ad-persistent-progress']"),p=document.querySelector(".html5-video-player"),u=new URL(document.location.href),v=document.querySelector("video");(["ad-interrupting","ad-showing"].some(e=>p.classList.contains(e))||b&&"none"!==window.getComputedStyle(b).display||p.getVideoData().video_id!==u.searchParams.get("v"))&&(v.currentTime=v.duration,new Set(document.querySelectorAll('[class*="ad-skip"] button')).forEach(e=>{e.disabled||e.click()}),setTimeout(f,250))}f();
+
 // Misc Parameters
 let playerElem = null;
 let videoElem = null;
@@ -48,8 +51,37 @@ function hasAnyClass(element, classes) {
     return classes.some(cls => element.classList.contains(cls));
 }
 
+function checkVideoIDMatch(print) {
+    // Check if the url's watch ID matches the player's video ID
+    // To block ads which play a different youtube video (ad) instead of a direct ad
+    const url = new URL(document.location.href);
+    let urlID;
+    // Set video ID based on page URL
+    if (url.hostname === 'youtu.be') {
+        urlID = url.pathname.split('/')[1];
+    } else if (url.hostname.includes('youtube.com')) {
+        let videoID = url.searchParams.get('v');
+        if (videoID) {
+            urlID = videoID;
+        } else {
+            if (print) { console.log('[Fast Ads] Could not find URL ID'); }
+            return false; // url is youtube.com but there wasn't a v= part
+        }
+    } else { return false; } // page's URL is not youtube.com or youtu.be
+    // Compare against API video_id
+    let playerID = playerElem.getVideoData().video_id;
+    if (urlID && playerID) {
+        if (urlID !== playerID) {
+            if (print) { console.log(`[Fast Ads] url: ${urlID} | video_id: ${playerID}`); }
+            return true;
+        }
+    }
+    return false;
+}
+
 function checkAdProgressBar() {
-    let element = document.querySelector("#movie_player > div.ytp-ad-persistent-progress-bar-container");
+    // Check if the ad progress bar is visible
+    let element = document.querySelector("[class*='ad-persistent-progress']")
     if (element) {
         let computedStyle = window.getComputedStyle(element);
         return computedStyle.display !== 'none';
@@ -57,10 +89,20 @@ function checkAdProgressBar() {
     return false;
 }
 
+function checkAdClass() {
+    // Check if the player has class attributes "ad-interrupting" or "ad-showing"
+    return hasAnyClass(playerElem, ['ad-interrupting', 'ad-showing']);
+}
+
+function checkAdPlaying(print) {
+    // Check if an ad is playing
+    return checkAdClass() || checkAdProgressBar() || checkVideoIDMatch(print);
+}
+
 function speedUpAds() {
     if (isProcessing === true) { return; }
     isProcessing = true;
-    if (hasAnyClass(playerElem, ['ad-interrupting', 'ad-showing']) || checkAdProgressBar()) {
+    if (checkAdPlaying(false)) {
         // If just switching from a video to an ad, hide the video/player and set isHidden to true
         if (playerElem.style.opacity === '1' || videoElem.style.opacity === '1') {
             console.log('[Fast Ads] Get blocked, kid');
@@ -126,8 +168,9 @@ function clickSkipButton() {
 
 function skipAd() {
     // Set currentTime to duration if metadata exists and an ad is playing
-    const isMetadataLoaded = videoElem.readyState >= 1;
-    const isAdPlaying = hasAnyClass(playerElem, ['ad-interrupting', 'ad-showing']);
+    const isMetadataLoaded = videoElem.readyState >= 2;
+    //const isAdPlaying = checkAdClass();
+    const isAdPlaying = checkAdPlaying(isMetadataLoaded);
     if (isMetadataLoaded && isAdPlaying) {
         videoElem.currentTime = videoElem.duration;
     }
@@ -137,7 +180,7 @@ function waitForVideo(callback) {
     // Assumes playerElem exists, returns once videoElem exists
     videoElem = playerElem.querySelector('video');
     if (videoElem) {
-        console.log('[Fast Ads] Redefined videoElem');
+        //console.log('[Fast Ads] Redefined videoElem');
         callback();
     } else {
         setTimeout(() => waitForVideo(callback), 50);
@@ -207,7 +250,7 @@ function waitForPlayerAndObserve() {
     playerElem = document.querySelector('.html5-video-player');
     if (playerElem) {
         waitForVideo(observePlayerChanges);
-        console.log('[Fast Ads] Player/Video already exist.');
+        //console.log('[Fast Ads] Player/Video already exist.');
     } else {
         playerObserver = new MutationObserver(function(mutations) {
             playerElem = playerElem || document.querySelector('.html5-video-player');
@@ -387,6 +430,5 @@ function titleChange() {
 }
 
 waitForBody(titleChange);
-
 
 
