@@ -33,17 +33,29 @@ let isProcessing = false;
 
 let counter = 0;
 function updateBadgeText() {
-    // Badge counter, only needed when used as an extension, not a
-    // tampermonkey script
-    let badgeText = null;
-    if (counter < 1000) {
-        badgeText = counter.toString();
-    } else if (counter < 10000) {
-        badgeText = Math.floor(counter / 1000) + "K";
-    } else {
-        badgeText = ">10K";
-    }
-    //chrome.runtime.sendMessage({type: "updateBadge", sendText: badgeText});
+//     // Badge counter, only needed when used as an extension, not a
+//     // tampermonkey script
+//     let badgeText = null;
+//     if (counter < 1000) {
+//         badgeText = counter.toString();
+//     } else if (counter < 10000) {
+//         badgeText = Math.floor(counter / 1000) + "K";
+//     } else {
+//         badgeText = ">10K";
+//     }
+//     //chrome.runtime.sendMessage({type: "updateBadge", sendText: badgeText});
+}
+
+let timeFormatter = new Intl.DateTimeFormat('en-US',
+                                            {
+                                             hour: 'numeric',
+                                             minute: 'numeric',
+                                             second: 'numeric',
+                                             hour12: false
+                                            }
+                                           )
+function log(string) {
+    console.log(`[Fast Ads] ${timeFormatter.format(new Date())}: ${string}`);
 }
 
 function hasAnyClass(element, classes) {
@@ -51,37 +63,26 @@ function hasAnyClass(element, classes) {
     return classes.some(cls => element.classList.contains(cls));
 }
 
-function checkVideoIDMatch(print) {
-    // Check if the url's watch ID matches the player's video ID
-    // To block ads which play a different youtube video (ad) instead of a direct ad
-    const url = new URL(document.location.href);
-    let urlID;
-    // Set video ID based on page URL
-    if (url.hostname === 'youtu.be') {
-        urlID = url.pathname.split('/')[1];
-    } else if (url.hostname.includes('youtube.com')) {
-        let videoID = url.searchParams.get('v');
-        if (videoID) {
-            urlID = videoID;
-        } else {
-            if (print) { console.log('[Fast Ads] Could not find URL ID'); }
-            return false; // url is youtube.com but there wasn't a v= part
-        }
-    } else { return false; } // page's URL is not youtube.com or youtu.be
-    // Compare against API video_id
-    let playerID = playerElem.getVideoData().video_id;
-    if (urlID && playerID) {
-        if (urlID !== playerID) {
-            if (print) { console.log(`[Fast Ads] url: ${urlID} | video_id: ${playerID}`); }
-            return true;
-        }
-    }
-    return false;
+function checkAdClass() { // First Check
+    // Check if the player has class attributes "ad-interrupting" or "ad-showing"
+    return hasAnyClass(playerElem, ['ad-interrupting', 'ad-showing']);
 }
 
-function checkAdProgressBar() {
+const vidAdSelectors = [
+    "[class*='ad-player-overlay']",
+    "[class*='ytp-flyout-cta']",
+    ];
+const vidAdSelectorString = vidAdSelectors.join(',');
+function checkAdOverlay() { // Second Check
+    // Check if some common ad elements exist
+    return playerElem.querySelectorAll(vidAdSelectorString).length !== 0;
+//     if (playerElem.querySelectorAll(vidAdSelectorString).length !== 0) { return true; }
+//     return false;
+}
+
+function checkAdProgressBar() { // Third Check
     // Check if the ad progress bar is visible
-    let element = document.querySelector("[class*='ad-persistent-progress']")
+    let element = playerElem.querySelector("[class*='ad-persistent-progress']")
     if (element) {
         let computedStyle = window.getComputedStyle(element);
         return computedStyle.display !== 'none';
@@ -89,14 +90,38 @@ function checkAdProgressBar() {
     return false;
 }
 
-function checkAdClass() {
-    // Check if the player has class attributes "ad-interrupting" or "ad-showing"
-    return hasAnyClass(playerElem, ['ad-interrupting', 'ad-showing']);
+function idFromURL(url, print) {
+    let videoID;
+    if (url.hostname.includes('youtube.com')) {
+        videoID = url.searchParams.get('v');
+    } else if (url.hostname.includes('youtu.be')) {
+        videoID = url.pathname.split('/')[1];
+    }
+    if (print && !videoID) { log('Could not find URL ID'); }
+    return videoID;
+}
+
+function checkVideoIDMismatch(print) { // Fourth Check
+    // Check if the url's watch ID matches the player's video ID matches the video url's watch ID
+    // To block ads which play a different youtube video (ad) instead of a direct ad
+    let urlID = idFromURL(new URL(document.location.href), print); // Page's URL
+    let playerID = idFromURL(new URL(playerElem.getVideoUrl()), print); // Video's URL
+    let videoID = playerElem.getVideoData().video_id; // Video's ID
+    const allIDs = [urlID, playerID, videoID].filter(id => id != null);
+    if (allIDs.length <= 1 || allIDs.every((id, _, array) => id === array[0])) {
+        // if 0 or 1 IDs exist, or all of the IDs are identical
+        return false; // one or no IDs exist
+    } else {
+        if (print) {
+            log(`urlID (location.href): ${urlID} | playerID (player.getVideoUrl()): ${playerID} | videoID (player.getVideoData().video_id): ${videoID}`);
+        }
+        return true; // mismatch in IDs
+    }
 }
 
 function checkAdPlaying(print) {
     // Check if an ad is playing
-    return checkAdClass() || checkAdProgressBar() || checkVideoIDMatch(print);
+    return checkAdClass() || checkAdOverlay() || checkAdProgressBar() || checkVideoIDMismatch(print);
 }
 
 function speedUpAds() {
@@ -105,7 +130,7 @@ function speedUpAds() {
     if (checkAdPlaying(false)) {
         // If just switching from a video to an ad, hide the video/player and set isHidden to true
         if (playerElem.style.opacity === '1' || videoElem.style.opacity === '1') {
-            console.log('[Fast Ads] Get blocked, kid');
+            log('Get blocked, kid');
             playerElem.style.opacity = '0.2';
             videoElem.style.opacity = '0.2';
             counter ++;
@@ -161,7 +186,7 @@ function clickSkipButton() {
     uniqueButtons.forEach(button => {
         if (!button.disabled) {
             button.click();
-            console.log(`[Fast Ads] Clicked ${'.' + button.className.split(' ').join('.')}`);
+            log(`Clicked ${'.' + button.className.split(' ').join('.')}`);
         }
     });
 }
@@ -169,7 +194,6 @@ function clickSkipButton() {
 function skipAd() {
     // Set currentTime to duration if metadata exists and an ad is playing
     const isMetadataLoaded = videoElem.readyState >= 2;
-    //const isAdPlaying = checkAdClass();
     const isAdPlaying = checkAdPlaying(isMetadataLoaded);
     if (isMetadataLoaded && isAdPlaying) {
         videoElem.currentTime = videoElem.duration;
@@ -180,7 +204,7 @@ function waitForVideo(callback) {
     // Assumes playerElem exists, returns once videoElem exists
     videoElem = playerElem.querySelector('video');
     if (videoElem) {
-        //console.log('[Fast Ads] Redefined videoElem');
+        //log('Redefined videoElem');
         callback();
     } else {
         setTimeout(() => waitForVideo(callback), 50);
@@ -194,7 +218,7 @@ function observePlayerChanges() {
         for (let mutation of mutations) {
             if (mutation.type === 'childList') {
                 if (!playerElem.contains(videoElem)) {
-                    console.log('[Fast Ads] videoElem missing from playerElem');
+                    log('videoElem missing from playerElem');
                     waitForVideo(speedUpAds);
                     //speedUpAds();
                 }
@@ -204,12 +228,15 @@ function observePlayerChanges() {
         }
     });
 
-     playerChangesObserver.observe(playerElem, {
-         attributes: true,
-         attributeFilter: ['class'],
-         childList: true,
-         subtree: true
-     });
+    playerChangesObserver.observe(playerElem, {
+        attributes: true,
+        attributeFilter: ['class'],
+        childList: true,
+        subtree: true
+    });
+
+    // Temp placement for this function
+    changeLogoLink();
 }
 
 function seekEvent(e) {
@@ -228,19 +255,19 @@ function seekEvent(e) {
     switch (e.key) {
         case 'a': // seeking backwards 30s
             video.currentTime -= 30;
-            console.log('[Fast Ads] Seeked -30s');
+            log('Seeked -30s');
             break;
         case 'd': // seeking forward 30s
             video.currentTime += 30;
-            console.log('[Fast Ads] Seeked +30s');
+            log('Seeked +30s');
             break;
         case 'q': // seeking backwards 60s
             video.currentTime -= 60;
-            console.log('[Fast Ads] Seeked -60s');
+            log('Seeked -60s');
             break;
         case 'e': // seeking forward 60s
             video.currentTime += 60;
-            console.log('[Fast Ads] Seeked +60s');
+            log('Seeked +60s');
             break;
     }
 }
@@ -250,7 +277,7 @@ function waitForPlayerAndObserve() {
     playerElem = document.querySelector('.html5-video-player');
     if (playerElem) {
         waitForVideo(observePlayerChanges);
-        //console.log('[Fast Ads] Player/Video already exist.');
+        //log('Player/Video already exist.');
     } else {
         playerObserver = new MutationObserver(function(mutations) {
             playerElem = playerElem || document.querySelector('.html5-video-player');
@@ -261,7 +288,7 @@ function waitForPlayerAndObserve() {
                 }
                 waitForVideo(observePlayerChanges);
                 playerObserver.disconnect();
-                console.log('[Fast Ads] Player/Video found, disconnected playerObserver.');
+                log('Player/Video found, disconnected playerObserver.');
             }
         });
         playerObserver.observe(document.body, {
@@ -271,25 +298,19 @@ function waitForPlayerAndObserve() {
     }
 }
 
-const adSelectors = ['#fulfilled-layout',
-                     '#player-ads',
-                     '#masthead-ad',
-                     '#below > ytd-merch-shelf-renderer',
-                     '#movie_player > div.ytp-paid-content-overlay',
-                     '[target-id="engagement-panel-ads"]',
-
-                     "#dismissible[class*='banner']",
-                     "#main[class*='promo-renderer']",
-                     ];
-
-// Untested selectors:
-//'#background-content',
-//'div[class*="ad-container"]',
-//'section[class*="ad-area"]',
-//'aside[id*="sidebar-ads"]',
-//'div[class*="ad"][role="advertisement"]',
-//'[class^="ad-"], [class$="-ad"], [class*="-ad-"]'
-                     
+const adSelectors = [
+    '#fulfilled-layout',
+    '#player-ads',
+    '#masthead-ad',
+    '[class*="ytd-merch-shelf-renderer"]',
+    "[class*='ytp'][class*='paid'][class*='overlay']",
+    '[target-id="engagement-panel-ads"]',
+    "#dismissible[class*='banner']",
+    "#dismissible[class*='brand']",
+    "#main[class*='promo-renderer']",
+    '[class*="branding"]:not(.html5-video-player)',
+    '[class*="ytp-button"][aria-label*="products"]',
+];
 const adSelectorString = adSelectors.join(',');
 
 function getElementSelector(element) {
@@ -310,18 +331,18 @@ function removeAds() {
     if (!isThrottled && elementsToRemove.length !== 0) {
         isThrottled = true;
         elementsToRemove.forEach(el => {
-            console.log(`[Fast Ads] Removing ${getElementSelector(el)}`);
-            el.remove();
-            counter ++;
-            updateBadgeText();
+            if (el) {
+                log(`Removing ${getElementSelector(el)}`);
+                el.remove();
+                counter ++;
+                updateBadgeText();
+            }
         });
         setTimeout(() => {
             isThrottled = false;
             removeAds(); // Recursive calls until elementsToRemove is exhausted
-        }, 100);
+        }, 250);
     }
-    // Temp placement for this function
-    changeLogoLink();
 }
 
 function waitForAdsAndObserve() {
@@ -419,12 +440,23 @@ mainFunction();
 
 function titleChange() {
     // Reset everything when the title changes
+    var titleElement = document.querySelector('title');
+    if (!titleElement) {
+        window.setTimeout(titleChange, 500);
+        return;
+    }
+    var resetThrottle = false;
     const observer = new MutationObserver(mutations => {
-        console.log('[Fast Ads] Restarting');
-        mainFunction();
+        if (!resetThrottle) {
+            resetThrottle = true;
+            log('Restarting');
+            mainFunction();
+            setTimeout(() => {
+                resetThrottle = false;
+            }, 5000);
+        }
     });
 
-    const titleElement = document.querySelector('title');
     const config = { childList: true };
     observer.observe(titleElement, config);
 }
