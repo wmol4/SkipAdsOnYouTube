@@ -26,10 +26,11 @@ let adObserver = null;
 let isListenerAdded = false;
 let mainRunning = false;
 let intervalID = null;
+let intervalID2 = null;
 
 // Gate flags
-//let isThrottled = null;
 let lastInvocation = 0;
+let isRemoving = false;
 let isProcessing = false;
 
 let counter = 0;
@@ -360,6 +361,13 @@ function matchesExclusion(el) {
            el.matches('[class*="skip"] button');
 }
 
+function checkAds() {
+    if (isRemoving) {
+        isRemoving = false;
+        removeAds();
+    }
+}
+
 function removeAds() {
     const thisInvocation = Date.now()
     lastInvocation = thisInvocation;
@@ -397,9 +405,13 @@ function removeAds() {
 }
 
 function waitForAdsAndObserve() {
-    //isThrottled = false;
+    if (!intervalID2) {
+            intervalID2 = setInterval(checkAds, 500);
+        }
+
     adObserver = new MutationObserver(function(mutations) {
-        removeAds();
+        //removeAds();
+        isRemoving = true;
     });
 
     // Initial check
@@ -472,9 +484,13 @@ function cleanUp() {
         isListenerAdded = false;
     }
     if (intervalID) {
-            clearInterval(intervalID);
-            intervalID = null;
-        }
+        clearInterval(intervalID);
+        intervalID = null;
+    }
+    if (intervalID2) {
+        clearInterval(intervalID2);
+        intervalID2 = null;
+    }
     mainRunning = false;
     document.removeEventListener('keydown', seekEvent);
 }
