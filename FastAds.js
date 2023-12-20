@@ -28,7 +28,8 @@ let mainRunning = false;
 let intervalID = null;
 
 // Gate flags
-let isThrottled = null;
+//let isThrottled = null;
+let lastInvocation = 0;
 let isProcessing = false;
 
 let counter = 0;
@@ -180,13 +181,15 @@ function onTimeUpdate() {
 }
 
 function clickSkipButton() {
-    const skipButtons = document.querySelectorAll('[class*="ad-skip"] button');
+    const skipButtonSelector = '[class*="ad-skip"] button';
+    const skipButtons = document.querySelectorAll(skipButtonSelector);
     const uniqueButtons = new Set(skipButtons);
 
     uniqueButtons.forEach(button => {
         if (!button.disabled) {
             button.click();
-            log(`Clicked ${'.' + button.className.split(' ').join('.')}`);
+            //log(`Clicked ${'.' + button.className.split(' ').join('.')}`);
+            log(`Clicked ${skipButtonSelector}`);
         }
     });
 }
@@ -241,10 +244,9 @@ function observePlayerChanges() {
 
 function seekEvent(e) {
     // Ensure the event doesn't fire in input fields
-    if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') {
+    if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea' || !playerElem) {
         return;
     }
-
     const video = playerElem.querySelector('video');
     if (!video) {
         return;
@@ -298,20 +300,33 @@ function waitForPlayerAndObserve() {
     }
 }
 
+function generateSelectors(strings, attributes) {
+    const selectors = [];
+
+    strings.forEach(str => {
+        attributes.forEach(attr => {
+            selectors.push(`[${attr}*="-${str}-"]`); // Matches attr containing '-str-'
+            selectors.push(`[${attr}$="-${str}"]`); // Matches attr ending with '-str'
+            selectors.push(`[${attr}*="-${str} "]`); // Matches attr containing '-str ' (with a space)
+            selectors.push(`[${attr}^="${str}-"]`); // Matches attr starting with 'str-'
+            selectors.push(`[${attr}*=" ${str}-"]`); // Matches attr containing ' str-' (with a space)
+        });
+    });
+
+    return selectors;
+}
+// Manual selectors
 const adSelectors = [
-    '#fulfilled-layout',
-    '#player-ads',
-    '#masthead-ad',
-    '[class*="ytd-merch-shelf-renderer"]',
-    "[class*='ytp'][class*='paid'][class*='overlay']",
-    '[target-id="engagement-panel-ads"]',
-    "#dismissible[class*='banner']",
-    "#dismissible[class*='brand']",
-    "#main[class*='promo-renderer']",
-    '[class*="branding"]:not(.html5-video-player)',
+    '[class*="paid"][class*="overlay"]',
     '[class*="ytp-button"][aria-label*="products"]',
+    ':where([class*="popup"]:has([id*="promo-renderer"]))',
 ];
-const adSelectorString = adSelectors.join(',');
+// Generated selectors
+const inputStrings = ['ad', 'ads', 'banner', 'brand', 'branding', 'merch', 'promo'];
+const attributes = ['class', 'id', 'target-id']
+const outputSelectors = generateSelectors(inputStrings, attributes);
+// Combined selectors
+const adSelectorString = Array.from(new Set([...outputSelectors, ...adSelectors])).join(',');
 
 function getElementSelector(element) {
     // Get the name of an element for logging
@@ -325,28 +340,64 @@ function getElementSelector(element) {
     return 'misc ad';
 }
 
+function isElementVisible(el) {
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+
+    return (
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        rect.width > 1 &&
+        rect.height > 1 &&
+        rect.top > 1 &&
+        rect.left > 1
+    );
+}
+
+function matchesExclusion(el) {
+    return el.matches('.html5-video-player') ||
+           el.matches('video') ||
+           el.matches('[class*="skip"] button');
+}
+
 function removeAds() {
-    // Remove ads defined in adSelectors
-    const elementsToRemove = document.querySelectorAll(adSelectorString);
-    if (!isThrottled && elementsToRemove.length !== 0) {
-        isThrottled = true;
-        elementsToRemove.forEach(el => {
-            if (el) {
-                log(`Removing ${getElementSelector(el)}`);
-                el.remove();
-                counter ++;
-                updateBadgeText();
-            }
-        });
-        setTimeout(() => {
-            isThrottled = false;
-            removeAds(); // Recursive calls until elementsToRemove is exhausted
-        }, 250);
+    const thisInvocation = Date.now()
+    lastInvocation = thisInvocation;
+    if (lastInvocation !== thisInvocation) {
+        return;
     }
+    // remove duplicates via Set
+    const topLevelElements = new Set(document.querySelectorAll(adSelectorString));
+    const elementsToRemove = Array.from(topLevelElements);
+    // reduce to parent-most elements
+    elementsToRemove.forEach(el => {
+        if (lastInvocation !== thisInvocation) {
+            return;
+        }
+        if (topLevelElements.has(el)) {
+            elementsToRemove.forEach(child => {
+                if (el !== child && el.contains(child)) {
+                    topLevelElements.delete(child);
+                }
+            });
+        }
+    });
+    // remove elements if visible and not an exclusion (i.e. the main player should never be removed)
+    topLevelElements.forEach(el => {
+        if (lastInvocation !== thisInvocation) {
+            return;
+        }
+        if (!matchesExclusion(el) && isElementVisible(el)) {
+            log(`Removing ${getElementSelector(el)}`);
+            el.remove();
+            counter ++;
+            updateBadgeText();
+        }
+    });
 }
 
 function waitForAdsAndObserve() {
-    isThrottled = false;
+    //isThrottled = false;
     adObserver = new MutationObserver(function(mutations) {
         removeAds();
     });
