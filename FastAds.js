@@ -300,7 +300,7 @@ function addRating() {
     ratingNode.forEach(node => {
         node.remove();
     });
-    if (hasAnyClass(playerElem, ['unstarted-mode', 'ytp-small-mode'])) {
+    if (hasAnyClass(playerElem, ['unstarted-mode'])) {
         return;
     }
     // add a video's rating to the player
