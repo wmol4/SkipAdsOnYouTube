@@ -16,6 +16,7 @@ let videoElem = null;
 let wasMutedByAd = false;
 let originalMuteState = false;
 let spinner;
+let fixable = false;
 
 // Observers
 let playerChangesObserver = null;
@@ -33,6 +34,7 @@ let lastInvocation = 0;
 let domChanges = true;
 let playerChanges = true;
 let isProcessing = false;
+let loadTime;
 
 let counter = 0;
 let videoFixes = 0;
@@ -69,22 +71,25 @@ function hasAnyClass(element, classes) {
 }
 
 function videoFix() {
-    videoFixes ++;
-    if (videoFixes >= 5) {
-        log('Reloading the video');
-        videoElem.load();
-        videoFixes = 0;
-    } else {
-        log('Attempting video fix');
-        videoElem.currentTime = videoElem.currentTime + 0.001;
-        playerElem.playVideo();
+    if (fixable || (new Date() - loadTime) >= 5000) {
+        fixable = true;
+        videoFixes ++;
+        if (videoFixes >= 5) {
+            log('Reloading the video');
+            videoElem.load();
+            videoFixes = 0;
+        } else {
+            log('Attempting video fix');
+            videoElem.currentTime = videoElem.currentTime + 0.001;
+            playerElem.playVideo();
+        }
     }
 }
 
 function checkSpinner() {
     if (spinner) {
         if (spinner && !videoElem.seeking && spinner.style.display !== 'none') {
-            videoFix();
+            setTimeout(videoFix, 100);
         }
     } else {
         spinner = playerElem.querySelector('[class*="spinner"]');
@@ -262,7 +267,7 @@ function observePlayerChanges() {
             }
         }
         if (videoElem && videoElem.readyState == 2) {
-            videoFix();
+            setTimeout(videoFix, 100);
         }
     });
 
@@ -300,7 +305,8 @@ function addRating() {
     ratingNode.forEach(node => {
         node.remove();
     });
-    if (hasAnyClass(playerElem, ['unstarted-mode'])) {
+    //if (playerElem && hasAnyClass(playerElem, ['unstarted-mode'])) {
+    if (videoElem && videoElem.readyState > 0 && (idFromURL(new URL(document.location.href), false) === null)) {
         return;
     }
     // add a video's rating to the player
@@ -635,6 +641,8 @@ function bodyFunction() {
     if (!pInterval) {
         pInterval = setInterval(assurePlayer, 5000);
     }
+    // Add rating info
+    onRestart();
 }
 
 function waitForBody(callback) {
@@ -719,8 +727,15 @@ function restartFA() {
     }, 5000);
 }
 
+function onRestart() {
+    loadTime = new Date();
+    fixable = false;
+    setTimeout(addRating, 1000);
+}
+
 // Set up the event listener for page changes
 //window.addEventListener('yt-page-data-updated', restartFA);
-window.addEventListener('yt-page-data-updated', addRating);
+//window.addEventListener('yt-page-data-updated', onRestart);
+window.addEventListener('yt-navigate-finish', onRestart);
 
 
