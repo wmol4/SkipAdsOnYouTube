@@ -71,13 +71,16 @@ function hasAnyClass(element, classes) {
 }
 
 function videoFix() {
-    if (fixable || (new Date() - loadTime) >= 5000) {
+    return;
+    if (fixable || (new Date() - loadTime) >= 2500) {
         fixable = true;
         videoFixes ++;
-        if (videoFixes >= 5) {
+        if (videoFixes >= 2) {
             log('Reloading the video');
             videoElem.load();
             videoFixes = 0;
+            loadTime = new Date();
+            fixable = false;
         } else {
             log('Attempting video fix');
             videoElem.currentTime = videoElem.currentTime + 0.001;
@@ -211,6 +214,10 @@ function onTimeUpdate() {
     skipAd();
 }
 
+function prevent(event) {
+    event.preventDefault();
+}
+
 function clickSkipButton() {
     const skipButtonSelector = '[class*="ad-skip"] button';
     const skipButtons = document.querySelectorAll(skipButtonSelector);
@@ -223,6 +230,34 @@ function clickSkipButton() {
             log(`Clicked "${buttonContent}" button`);
         }
     });
+
+    // Temp for figuring out wtf this start button is sometimes
+    if (playerElem) {
+        let playerButtons = playerElem.querySelectorAll('button');
+        let foundButton = false;
+        playerButtons.forEach(butt => {
+            if (butt.textContent.toLowerCase().includes('start')) {
+
+                // Check if there exists a form that isn't the search box
+                let forms = document.querySelectorAll('form:not([class*="searchbox"])');
+                forms.forEach(form => {
+                    log('FORM FOUND');
+                    log(form.innerHTML);
+                    form.removeAttribute('target');
+                    log('Removed form target');
+                });
+
+                butt.addEventListener('click', prevent);
+
+                log('Start button found');
+                butt.click();
+                log('Start button clicked, did it allow for clicking skip immediately after?');
+
+                butt.removeEventListener('click', prevent);
+                log('Tried to block default event, did it still let you click skip? Did it open up a newtab?');
+            }
+        });
+    }
 }
 
 function skipAd() {
@@ -234,13 +269,16 @@ function skipAd() {
     }
 }
 
+let videoLoaded = false;
 function waitForVideo(callback) {
     // Assumes playerElem exists, returns once videoElem exists
     //videoElem = playerElem.querySelector('video');
     videoElem = document.querySelector('video');
     if (videoElem) {
+        videoLoaded = true;
         callback();
     } else {
+        videoLoaded = false;
         setTimeout(() => waitForVideo(callback), 50);
     }
 }
@@ -252,7 +290,7 @@ function observePlayerChanges() {
         for (let mutation of mutations) {
             if (mutation.type === 'childList') {
                 if (!playerElem.contains(videoElem)) {
-                    log('Video missing from player');
+                    //log('Video missing from player');
                     waitForVideo(speedUpAds);
                     //break;
                 }
@@ -389,28 +427,58 @@ function seekEvent(e) {
     }
     const video = playerElem.querySelector('video');
     if (!video) {
+        videoLoaded = false;
         return;
     }
 
     // A and D seek back/forward 30s
     // Q and E seek back/forward 60s
+    let amtSeeked;
+    let seeked = false;
     switch (e.key.toLowerCase()) {
         case 'a': // seeking backwards 30s
-            video.currentTime -= 30;
-            log('Seeked -30s');
+            amtSeeked = -30;
+            //video.currentTime -= amtSeeked;
+            //log('Seeked -30s');
+            seeked = true;
             break;
         case 'd': // seeking forward 30s
-            video.currentTime += 30;
-            log('Seeked +30s');
+            amtSeeked = 30
+            //video.currentTime += amtSeeked;
+            //log('Seeked +30s');
+            seeked = true;
             break;
         case 'q': // seeking backwards 60s
-            video.currentTime -= 60;
-            log('Seeked -60s');
+            amtSeeked = -60
+            //video.currentTime -= amtSeeked;
+            //log('Seeked -60s');
+            seeked = true;
             break;
         case 'e': // seeking forward 60s
-            video.currentTime += 60;
-            log('Seeked +60s');
+            amtSeeked = 60
+            //video.currentTime += amtSeeked;
+            //log('Seeked +60s');
+            seeked = true;
             break;
+        case 's': // video fix attempt
+            amtSeeked = -0.001
+            seeked = true;
+            break;
+    }
+    if (seeked) {
+        video.currentTime += amtSeeked;
+        log(`Seeked ${amtSeeked}s`);
+//         let startTime = videoElem.currentTime;
+//         let expectedProgress = 1.0;
+//         let tolerance = 0.5;
+//         setTimeout(() => {
+//             let currentTime = videoElem.currentTime;
+//             let actualProgress = currentTime - startTime;
+//             if ((actualProgress < (expectedProgress - tolerance) || (actualProgress + amtSeeked) < (expectedProgress - tolerance)) && video.playbackRate >= 1) {
+//                 log('Video stuck, attempting fix.');
+//                 video.currentTime = video.currentTime-.001;
+//             }
+//         }, expectedProgress * 1000);
     }
 }
 
@@ -419,11 +487,12 @@ function checkVidAds() {
         playerChanges = false;
         playerElem = document.querySelector('.html5-video-player');
         if (playerElem) {
-            videoElem = document.querySelector('video');
-            if (videoElem) {
+            waitForVideo(() => {
                 speedUpAds();
-            }
-            waitForVideo(observePlayerChanges);
+                observePlayerChanges();
+            });
+            // Once playerElem exists, disconnect observer
+            // and clear the check interval
             if (playerObserver) {
                 playerObserver.disconnect();
                 playerObserver = null;
@@ -614,11 +683,11 @@ function assurePlayer() {
 
 function changeLogoLink() {
     // When a special promotion is going on, clicking the top left youtube
-    // icon will take you back to the default home screen, not the promotional
-    // homescreen (though this won't be reflected in the url).
+    // icon will take you back to the default home screen, not the promotional page
     document.querySelectorAll("#logo a").forEach(function(el) {
         el.setAttribute('href', 'https://www.youtube.com');
         try {
+            el.data.commandMetadata.webCommandMetadata.url = '/';
             el.data.browseEndpoint.params = '';
         } catch (error) {
             // pass
