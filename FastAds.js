@@ -8,6 +8,7 @@
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=youtube.com
 // @grant        none
 // @run-at       document-body
+// @noframes
 // ==/UserScript==
 
 // Misc Parameters
@@ -216,6 +217,7 @@ function onTimeUpdate() {
 
 function prevent(event) {
     event.preventDefault();
+    event.stopPropagation();
 }
 
 function clickSkipButton() {
@@ -241,20 +243,20 @@ function clickSkipButton() {
                 // Check if there exists a form that isn't the search box
                 let forms = document.querySelectorAll('form:not([class*="searchbox"])');
                 forms.forEach(form => {
-                    log('FORM FOUND');
-                    log(form.innerHTML);
+                    //log('FORM FOUND');
+                    //log(form.innerHTML);
                     form.removeAttribute('target');
-                    log('Removed form target');
+                    //log('Removed form target');
                 });
 
                 butt.addEventListener('click', prevent);
 
-                log('Start button found');
+                //log('Start button found');
                 butt.click();
-                log('Start button clicked, did it allow for clicking skip immediately after?');
+                //log('Start button clicked, did it allow for clicking skip immediately after?');
 
                 butt.removeEventListener('click', prevent);
-                log('Tried to block default event, did it still let you click skip? Did it open up a newtab?');
+                //log('Tried to block default event, did it still let you click skip? Did it open up a newtab?');
             }
         });
     }
