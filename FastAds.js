@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Fast Ads2
+// @name         Fast Ads3
 // @namespace    http://tampermonkey.net/
 // @version      0.1
 // @description  Gotta go fast!
@@ -16,8 +16,6 @@ let playerElem = null;
 let videoElem = null;
 let wasMutedByAd = false;
 let originalMuteState = false;
-let spinner;
-let fixable = false;
 
 // Observers
 let playerChangesObserver = null;
@@ -35,31 +33,14 @@ let lastInvocation = 0;
 let domChanges = true;
 let playerChanges = true;
 let isProcessing = false;
-let loadTime;
-
-let counter = 0;
-let videoFixes = 0;
-function updateBadgeText() {
-//     // Badge counter, only needed when used as an extension, not a
-//     // tampermonkey script
-//     let badgeText = null;
-//     if (counter < 1000) {
-//         badgeText = counter.toString();
-//     } else if (counter < 10000) {
-//         badgeText = Math.floor(counter / 1000) + "K";
-//     } else {
-//         badgeText = ">10K";
-//     }
-//     //chrome.runtime.sendMessage({type: "updateBadge", sendText: badgeText});
-}
 
 let timeFormatter = new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'numeric',second:'numeric',hour12:false});
 let lastLogTime = null;
 function log(string) {
     let currentTime = new Date();
     let timeString = '';
-    if (!lastLogTime || (currentTime - lastLogTime) >= (300*1000)) {
-        //Only log the timestamp if it has been at least 300 seconds since the last timestamped message
+    if (!lastLogTime || (currentTime - lastLogTime) >= (60*1000)) {
+        //Only log the timestamp if it has been at least 60 seconds since the last timestamped message
         timeString = `${timeFormatter.format(currentTime)}: `;
         lastLogTime = currentTime;
     }
@@ -69,36 +50,6 @@ function log(string) {
 function hasAnyClass(element, classes) {
     // Check if a class from classes exists in element
     return classes.some(cls => element.classList.contains(cls));
-}
-
-function videoFix() {
-    return;
-    if (fixable || (new Date() - loadTime) >= 2500) {
-        fixable = true;
-        videoFixes ++;
-        if (videoFixes >= 2) {
-            log('Reloading the video');
-            videoElem.load();
-            videoFixes = 0;
-            loadTime = new Date();
-            fixable = false;
-        } else {
-            log('Attempting video fix');
-            videoElem.currentTime = videoElem.currentTime + 0.001;
-            playerElem.playVideo();
-        }
-    }
-}
-
-function checkSpinner() {
-    if (spinner) {
-        if (spinner && !videoElem.seeking && spinner.style.display !== 'none') {
-            setTimeout(videoFix, 100);
-        }
-    } else {
-        spinner = playerElem.querySelector('[class*="spinner"]');
-        checkSpinner();
-    }
 }
 
 function checkAdClass() { // First Check
@@ -117,11 +68,29 @@ function checkAdOverlay() { // Second Check
 }
 
 function checkAdProgressBar() { // Third Check
-    // Check if the ad progress bar is visible
+    // If progress bar container is disabled
+    let progressBarContainer = playerElem.querySelector("[class*='ytp-progress-bar-container']");
+    if (progressBarContainer && progressBarContainer.hasAttribute('disabled')) {
+        const isDisabled = progressBarContainer.getAttribute('disabled') !== 'false';
+        if (isDisabled) {
+            return true;
+        }
+    }
+    // If progress bar is not draggable
+    let progressBar = playerElem.querySelector("[class='ytp-progress-bar']")
+    if (progressBar && progressBar.hasAttribute('draggable')) {
+        const isDraggable = progressBar.getAttribute('draggable');
+        if (!isDraggable) {
+            return true;
+        }
+    }
+    // If the ad progress bar is visible
     let element = playerElem.querySelector("[class*='ad-persistent-progress']")
     if (element) {
         let computedStyle = window.getComputedStyle(element);
-        return computedStyle.display !== 'none';
+        if (computedStyle.display !== 'none') {
+           return true;
+        }
     }
     return false;
 }
@@ -149,15 +118,42 @@ function checkVideoIDMismatch(print) { // Fourth Check
         return false; // one or no IDs exist
     } else {
         if (print) {
-            log(`urlID (location.href): ${urlID} | playerID (player.getVideoUrl()): ${playerID} | videoID (player.getVideoData().video_id): ${videoID}`);
+            log(`urlID (location.href): ${urlID} | playerID (playerElem.getVideoUrl()): ${playerID} | videoID (playerElem.getVideoData().video_id): ${videoID}`);
         }
         return true; // mismatch in IDs
     }
 }
 
 function checkAdPlaying(print) {
+    let a = checkAdClass();
+    if (a) { return a; }
+    let b = checkAdOverlay();
+    if (b) { return b; }
+    let c = checkAdProgressBar();
+    if (c) { return c; }
+    let d = checkVideoIDMismatch(print);
+    if (d) { return d; }
+//     const type = [];
+//     if (a) {
+//         type.push('a');
+//     }
+//     if (b) {
+//         type.push('b');
+//     }
+//     if (c) {
+//         type.push('c');
+//     }
+//     if (d) {
+//         type.push('d');
+//     }
+//     const typeStr = type.join('');
+//     const out = a || b || c || d;
+//     if (out) {
+//         log(typeStr);
+//     }
+//     return out
     // Check if an ad is playing
-    return checkAdClass() || checkAdOverlay() || checkAdProgressBar() || checkVideoIDMismatch(print);
+//     return checkAdClass() || checkAdOverlay() || checkAdProgressBar() || checkVideoIDMismatch(print);
 }
 
 function speedUpAds() {
@@ -167,10 +163,8 @@ function speedUpAds() {
         // If just switching from a video to an ad, hide the video/player and set isHidden to true
         if (playerElem.style.opacity === '1' || videoElem.style.opacity === '1') {
             log('Get blocked, kid');
-            playerElem.style.opacity = '0.2';
-            videoElem.style.opacity = '0.2';
-            counter ++;
-            updateBadgeText();
+            playerElem.style.opacity = '0.3';
+            videoElem.style.opacity = '0.3';
         }
         // If the video isn't muted, mute it and make note to unmute it later
         // However, if the video is muted, we don't need to do anything
@@ -218,6 +212,7 @@ function onTimeUpdate() {
 function prevent(event) {
     event.preventDefault();
     event.stopPropagation();
+    console.log('Click event prevented');
 }
 
 function clickSkipButton() {
@@ -232,37 +227,10 @@ function clickSkipButton() {
             log(`Clicked "${buttonContent}" button`);
         }
     });
-
-    // Temp for figuring out wtf this start button is sometimes
-    if (playerElem) {
-        let playerButtons = playerElem.querySelectorAll('button');
-        let foundButton = false;
-        playerButtons.forEach(butt => {
-            if (butt.textContent.toLowerCase().includes('start')) {
-
-                // Check if there exists a form that isn't the search box
-                let forms = document.querySelectorAll('form:not([class*="searchbox"])');
-                forms.forEach(form => {
-                    //log('FORM FOUND');
-                    //log(form.innerHTML);
-                    form.removeAttribute('target');
-                    //log('Removed form target');
-                });
-
-                butt.addEventListener('click', prevent);
-
-                //log('Start button found');
-                butt.click();
-                //log('Start button clicked, did it allow for clicking skip immediately after?');
-
-                butt.removeEventListener('click', prevent);
-                //log('Tried to block default event, did it still let you click skip? Did it open up a newtab?');
-            }
-        });
-    }
 }
 
 function skipAd() {
+    videoElem = getVideo();
     // Set currentTime to duration if metadata exists and an ad is playing
     const isMetadataLoaded = videoElem.readyState >= 2;
     const isAdPlaying = checkAdPlaying(isMetadataLoaded);
@@ -271,11 +239,48 @@ function skipAd() {
     }
 }
 
+function querySelectorDeep(selector, root=document) {
+  let targetElement = root.querySelector(selector);
+  if (targetElement) {
+    return targetElement;
+  }
+
+  let allElements = root.querySelectorAll("*");
+  for (let i = 0; i < allElements.length; i++) {
+    let currentElement = allElements[i];
+
+    if (currentElement.shadowRoot) {
+      let elementInShadowRoot = querySelectorDeep(selector, currentElement.shadowRoot);
+      if (elementInShadowRoot) {
+        return elementInShadowRoot;
+      }
+    }
+  }
+  return null;
+}
+
+function getVideo() {
+    if (playerElem) {
+        let vid = querySelectorDeep('video', playerElem);
+        if (vid) {
+            return vid;
+        }
+    }
+    let vid = querySelectorDeep('video');
+    if (vid) {
+        return vid;
+    }
+    return null;
+}
+
+// function getVideo() {
+//     return document.querySelector('video');
+// }
+
 let videoLoaded = false;
 function waitForVideo(callback) {
     // Assumes playerElem exists, returns once videoElem exists
-    //videoElem = playerElem.querySelector('video');
-    videoElem = document.querySelector('video');
+    videoElem = getVideo();
     if (videoElem) {
         videoLoaded = true;
         callback();
@@ -300,126 +305,17 @@ function observePlayerChanges() {
                 if (mutation.attributeName === 'class') {
                     speedUpAds();
                     //break;
-                } else if (mutation.attributeName === 'style') {
-                    checkSpinner();
-                    //break;
                 }
             }
-        }
-        if (videoElem && videoElem.readyState == 2) {
-            setTimeout(videoFix, 100);
         }
     });
 
     playerChangesObserver.observe(playerElem, {
         attributes: true,
-        attributeFilter: ['class', 'style'],
+        attributeFilter: ['class'],
         childList: true,
         subtree: true
     });
-}
-
-function calculateAdjustedRating(likes, dislikes, totalViews, scalingFactor) {
-    let R = (likes / (likes + dislikes)) * 100;
-    let DIF = (dislikes / totalViews);
-    let BR = R - (DIF * scalingFactor);
-    return Math.max(0, Math.min(BR, 100)); // Ensures the rating stays between 0% and 100%
-}
-let isChecking;
-function checkRating() {
-    if (isChecking) { return; }
-    isChecking = true;
-    if (playerElem) {
-        let ratingNode = playerElem.querySelector('videoRating');
-        if (!ratingNode) {
-            addRating();
-        }
-    }
-    setTimeout(() => {
-        isChecking = false;
-    }, 500);
-}
-
-function addRating() {
-    let ratingNode = document.querySelectorAll('videoRating');
-    ratingNode.forEach(node => {
-        node.remove();
-    });
-    //if (playerElem && hasAnyClass(playerElem, ['unstarted-mode'])) {
-    if (videoElem && videoElem.readyState > 0 && (idFromURL(new URL(document.location.href), false) === null)) {
-        return;
-    }
-    // add a video's rating to the player
-    if (videoElem && videoElem.readyState >= 4 && !checkAdPlaying(false)) {
-        let iconLoc = playerElem.querySelector('[class*="time-display"]:not([id*="sponsorBlock"])');
-        if (iconLoc) {
-            let videoID = playerElem.getVideoData().video_id;
-            if (videoID && !iconLoc.querySelector('videoRating')) {
-                fetch(`https://returnyoutubedislikeapi.com/votes?videoId=${videoID}`)
-                    .then(response => response.json())
-                    .then(data => {
-                    let likes = data.likes;
-                    let dislikes = data.dislikes;
-                    let viewCount = data.viewCount;
-                    let emoji;
-                    let ratingStr;
-                    if (likes === 0 && dislikes === 0) {
-                        log('No rating detected');
-                        emoji = '🟢🟢🟢';
-                    } else {
-                        let ratingVal = calculateAdjustedRating(likes, dislikes, viewCount, 500);
-                        ratingStr = `${Math.round(ratingVal)}% (${Math.round(100*(likes/(likes+dislikes)))}%)`
-                        log(`Adjusted Rating: ${ratingStr} (${likes}/${likes+dislikes})`);
-                        if (ratingVal <= 20) {
-                            emoji = '🔴🔴🔴';
-                        } else if (ratingVal <= 35) {
-                            emoji = '🟠🔴🔴';
-                        } else if (ratingVal <= 50) {
-                            emoji = '🟠🟠🔴';
-                        } else if (ratingVal <= 65) {
-                            emoji = '🟠🟠🟠';
-                        } else if (ratingVal <= 75) {
-                            emoji = '🟡🟠🟠';
-                        } else if (ratingVal <= 85) {
-                            emoji = '🟡🟡🟠';
-                        } else if (ratingVal <= 90) {
-                            emoji = '🟡🟡🟡';
-                        } else if (ratingVal <= 95) {
-                            emoji = '🟢🟡🟡';
-                        } else if (ratingVal <= 97.5) {
-                            emoji = '🟢🟢🟡';
-                        } else {
-                            emoji = '🟢🟢🟢';
-                        }
-                    }
-                    if (iconLoc.querySelector('videoRating')) {
-                        iconLoc.querySelector('videoRating').textContent = `${emoji}`;
-                    } else {
-                        let newSpan = document.createElement('videoRating');
-                        newSpan.textContent = `${emoji}`;
-                        if (ratingStr) {
-                            newSpan.title = `🟢${likes}\n🔴${dislikes}\n${ratingStr}`;
-                        } else {
-                            newSpan.title = `🟢${likes}\n🔴${dislikes}`;
-                        }
-                        newSpan.style.opacity = 0.5;
-                        newSpan.className = 'ytp-time-display';
-                        newSpan.classList.add('notranslate');
-                        iconLoc.appendChild(newSpan);
-                    }
-                })
-                    .catch(error => {
-                    log('Could not find rating info');
-                });
-            } else {
-                log('Could not find video ID or icon location');
-            }
-        }
-    } else {
-        setTimeout(() => {
-            addRating();
-        }, 1000);
-    }
 }
 
 function seekEvent(e) {
@@ -427,7 +323,8 @@ function seekEvent(e) {
     if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea' || !playerElem) {
         return;
     }
-    const video = playerElem.querySelector('video');
+    //const video = playerElem.querySelector('video');
+    const video = getVideo();
     if (!video) {
         videoLoaded = false;
         return;
@@ -435,31 +332,24 @@ function seekEvent(e) {
 
     // A and D seek back/forward 30s
     // Q and E seek back/forward 60s
+    // S seeks back 0.001s (to try and fix a loading issue)
     let amtSeeked;
     let seeked = false;
     switch (e.key.toLowerCase()) {
         case 'a': // seeking backwards 30s
             amtSeeked = -30;
-            //video.currentTime -= amtSeeked;
-            //log('Seeked -30s');
             seeked = true;
             break;
         case 'd': // seeking forward 30s
             amtSeeked = 30
-            //video.currentTime += amtSeeked;
-            //log('Seeked +30s');
             seeked = true;
             break;
         case 'q': // seeking backwards 60s
             amtSeeked = -60
-            //video.currentTime -= amtSeeked;
-            //log('Seeked -60s');
             seeked = true;
             break;
         case 'e': // seeking forward 60s
             amtSeeked = 60
-            //video.currentTime += amtSeeked;
-            //log('Seeked +60s');
             seeked = true;
             break;
         case 's': // video fix attempt
@@ -470,17 +360,6 @@ function seekEvent(e) {
     if (seeked) {
         video.currentTime += amtSeeked;
         log(`Seeked ${amtSeeked}s`);
-//         let startTime = videoElem.currentTime;
-//         let expectedProgress = 1.0;
-//         let tolerance = 0.5;
-//         setTimeout(() => {
-//             let currentTime = videoElem.currentTime;
-//             let actualProgress = currentTime - startTime;
-//             if ((actualProgress < (expectedProgress - tolerance) || (actualProgress + amtSeeked) < (expectedProgress - tolerance)) && video.playbackRate >= 1) {
-//                 log('Video stuck, attempting fix.');
-//                 video.currentTime = video.currentTime-.001;
-//             }
-//         }, expectedProgress * 1000);
     }
 }
 
@@ -493,8 +372,7 @@ function checkVidAds() {
                 speedUpAds();
                 observePlayerChanges();
             });
-            // Once playerElem exists, disconnect observer
-            // and clear the check interval
+            // Once playerElem exists, disconnect observer and clear the check interval
             if (playerObserver) {
                 playerObserver.disconnect();
                 playerObserver = null;
@@ -628,18 +506,14 @@ function removeAds() {
             el.style.opacity = '0';
         }
     });
-    //log(`Reduced from ${numEl} to ${Array.from(topLevelElements).length}`);
     // remove elements if visible and not an exclusion
     topLevelElements.forEach(el => {
         if (!matchesExclusion(el) && isElementVisible(el)) {
             log(`Removing ${getElementSelector(el)}`);
             el.remove();
-            counter ++;
-            updateBadgeText();
         }
     });
     lastInvocation = 0;
-    //log(new Date() - thisInvocation);
 }
 
 function checkAds() {
@@ -677,7 +551,7 @@ function waitForAdsAndObserve() {
     });
 }
 
-function assurePlayer() {
+function assertPlayer() {
     if (!document.querySelector('.html5-video-player') && !playerObserver) {
         waitForPlayerAndObserve();
     }
@@ -710,10 +584,8 @@ function bodyFunction() {
     }
     // Occasionally check that the player still exists
     if (!pInterval) {
-        pInterval = setInterval(assurePlayer, 5000);
+        pInterval = setInterval(assertPlayer, 5000);
     }
-    // Add rating info
-    onRestart();
 }
 
 function waitForBody(callback) {
@@ -725,88 +597,9 @@ function waitForBody(callback) {
     }
 }
 
-function cleanUp() {
-    mainRunning = false;
-    counter = 0;
-    videoFixes = 0;
-    spinner = null;
-    // Reset the playerObserver
-    if (playerObserver) {
-        playerObserver.disconnect();
-        playerObserver = null;
-    }
-    // Reset the playerChangesObserver
-    if (playerChangesObserver) {
-        playerChangesObserver.disconnect();
-        playerChangesObserver = null;
-    }
-    // Reset the adObserver
-    if (adObserver) {
-        adObserver.disconnect();
-        adObserver = null;
-    }
-    // Clear event listener
-    if (isListenerAdded) {
-        videoElem.removeEventListener('timeupdate', onTimeUpdate);
-        isListenerAdded = false;
-    }
-    // Clear click skip interval
-    clearInterval(intervalID);
-    intervalID = null;
-    // Clear ad removal interval
-    clearInterval(intervalID2);
-    intervalID2 = null;
-    // Clear vid ad removal interval
-    clearInterval(intervalID3);
-    intervalID3 = null;
-    // Remove added ratings
-    let ratingNode = document.querySelectorAll('videoRating');
-    ratingNode.forEach(node => {
-        node.remove();
-    });
-    // Remove all timeouts (https://stackoverflow.com/a/8860203)
-    var id = window.setTimeout(function() {}, 0);
-    while (id--) {
-        window.clearTimeout(id);
-    }
-    // Remove seek event listener
-    document.removeEventListener('keydown', seekEvent);
-}
+waitForBody(bodyFunction);
 
-function mainFunction() {
-    'use strict';
-    // Clear all of the observers, intervals, event listeners
-    cleanUp();
-    // Run the script
-    waitForBody(bodyFunction);
-}
 
-mainFunction();
 
-let restartTimeout;
-let initialRestart = false;
-function restartFA() {
-    if (!initialRestart) {
-        initialRestart = true;
-        return;
-    }
-    // Restart after 5 seconds of being on a new page
-    clearTimeout(restartTimeout);
-    restartTimeout = setTimeout(() => {
-        log('Restarting');
-        mainFunction();
-    }, 5000);
-}
-
-function onRestart() {
-    loadTime = new Date();
-    fixable = false;
-    setTimeout(addRating, 1000);
-}
-
-// Set up the event listener for page changes
-//window.addEventListener('yt-page-data-updated', restartFA);
-//window.addEventListener('yt-page-data-updated', onRestart);
-window.addEventListener('yt-navigate-finish', onRestart);
 
 
