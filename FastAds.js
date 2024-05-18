@@ -175,8 +175,9 @@ function speedUpAds() {
         }
         // Event listener to click skip ad button and skip to the end of the ad
         if (!isListenerAdded) {
-            videoElem.addEventListener('timeupdate', onTimeUpdate);
-            isListenerAdded = true;
+            //videoElem.addEventListener('timeupdate', onTimeUpdate);
+            isListenerAdded = setInterval(skipAd, 250);
+            //isListenerAdded = true;
         }
         if (!intervalID) {
             intervalID = setInterval(clickSkipButton, 250);
@@ -193,8 +194,10 @@ function speedUpAds() {
             wasMutedByAd = false;
         }
         if (isListenerAdded) {
-            videoElem.removeEventListener('timeupdate', onTimeUpdate);
-            isListenerAdded = false;
+            //videoElem.removeEventListener('timeupdate', onTimeUpdate);
+            clearInterval(isListenerAdded);
+            //isListenerAdded = false;
+            isListenerAdded = null;
         }
         // Only stop clicking skip button if the video is playing
         if (!videoElem.paused && !videoElem.ended) {
@@ -236,6 +239,7 @@ function skipAd() {
     const isAdPlaying = checkAdPlaying(isMetadataLoaded);
     if (isMetadataLoaded && isAdPlaying) {
         videoElem.currentTime = videoElem.duration;
+        log(`Skipped ${videoElem.duration}s long ad`);
     }
 }
 
@@ -598,8 +602,5 @@ function waitForBody(callback) {
 }
 
 waitForBody(bodyFunction);
-
-
-
 
 
