@@ -39,8 +39,8 @@ let lastLogTime = null;
 function log(string) {
     let currentTime = new Date();
     let timeString = '';
-    if (!lastLogTime || (currentTime - lastLogTime) >= (60*1000)) {
-        //Only log the timestamp if it has been at least 60 seconds since the last timestamped message
+    if (!lastLogTime || (currentTime - lastLogTime) >= (10*1000)) {
+        //Only log the timestamp if it has been at least 10 seconds since the last timestamped message
         timeString = `${timeFormatter.format(currentTime)}: `;
         lastLogTime = currentTime;
     }
@@ -70,10 +70,21 @@ function checkAdOverlay() { // Second Check
 function checkAdProgressBar() { // Third Check
     // If progress bar container is disabled
     let progressBarContainer = playerElem.querySelector("[class*='ytp-progress-bar-container']");
-    if (progressBarContainer && progressBarContainer.hasAttribute('disabled')) {
-        const isDisabled = progressBarContainer.getAttribute('disabled') !== 'false';
-        if (isDisabled) {
-            return true;
+    let isDisabled;
+    if (progressBarContainer) {
+        if (progressBarContainer.hasAttribute('disabled')) {
+            isDisabled = progressBarContainer.getAttribute('disabled') !== 'false';
+            if (isDisabled) {
+                log('Progress Bar attribute "disabled" is "true".');
+                return true;
+            }
+        }
+        if (progressBarContainer.hasAttribute('aria-disabled')) {
+            isDisabled = progressBarContainer.getAttribute('aria-disabled') !== 'false';
+            if (isDisabled) {
+                log('Progress Bar attribute "aria-disabled" is "true".');
+                return true;
+            }
         }
     }
     // If progress bar is not draggable
@@ -81,6 +92,7 @@ function checkAdProgressBar() { // Third Check
     if (progressBar && progressBar.hasAttribute('draggable')) {
         const isDraggable = progressBar.getAttribute('draggable');
         if (!isDraggable) {
+            log('Progress Bar attribute "draggable" is "false".');
             return true;
         }
     }
@@ -89,7 +101,8 @@ function checkAdProgressBar() { // Third Check
     if (element) {
         let computedStyle = window.getComputedStyle(element);
         if (computedStyle.display !== 'none') {
-           return true;
+            log('Progress Bar "ad-persistent-progress" is visible.');
+            return true;
         }
     }
     return false;
@@ -175,9 +188,7 @@ function speedUpAds() {
         }
         // Event listener to click skip ad button and skip to the end of the ad
         if (!isListenerAdded) {
-            //videoElem.addEventListener('timeupdate', onTimeUpdate);
             isListenerAdded = setInterval(skipAd, 250);
-            //isListenerAdded = true;
         }
         if (!intervalID) {
             intervalID = setInterval(clickSkipButton, 250);
@@ -194,9 +205,7 @@ function speedUpAds() {
             wasMutedByAd = false;
         }
         if (isListenerAdded) {
-            //videoElem.removeEventListener('timeupdate', onTimeUpdate);
             clearInterval(isListenerAdded);
-            //isListenerAdded = false;
             isListenerAdded = null;
         }
         // Only stop clicking skip button if the video is playing
@@ -206,16 +215,6 @@ function speedUpAds() {
         }
     }
     isProcessing = false;
-}
-
-function onTimeUpdate() {
-    skipAd();
-}
-
-function prevent(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    console.log('Click event prevented');
 }
 
 function clickSkipButton() {
@@ -546,7 +545,6 @@ function waitForAdsAndObserve() {
             domChanges = true;
             observationCounter = 0;
         }
-        //domChanges = true;
     });
 
     adObserver.observe(document.body, {
@@ -603,4 +601,22 @@ function waitForBody(callback) {
 
 waitForBody(bodyFunction);
 
+function onUpdate() {
+    waitForVideo(speedUpAds);
+    log('Page Data Updated');
+}
 
+function onNavStart() {
+    waitForVideo(speedUpAds);
+    log('Page Navigation Started');
+}
+
+function onNavStop() {
+    waitForVideo(speedUpAds);
+    log('Page Navigation Finished');
+}
+
+// To get all existing events, type this in console: "getEventListeners(document)"
+//window.addEventListener('yt-page-data-updated', onUpdate);
+window.addEventListener('yt-navigate-start', onNavStart);
+//window.addEventListener('yt-navigate-finish', onNavStop);
