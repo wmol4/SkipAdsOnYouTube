@@ -238,33 +238,39 @@ let wasMutedByAd = false;
 let originalMuteState = false;
 let intervalID = null;
 let blurVal = 'blur(50px)';
-function adPlaying(videoElement) {
+function adPlaying(videoElement, playerElement) {
+    if (!videoElement.muted) {
+        originalMuteState = videoElement.muted;
+        videoElement.muted = true;
+        wasMutedByAd = true;
+    }
     if (videoElement.style.opacity === '1') {
         videoElement.style.opacity = adOpacity;
     }
     if (!videoElement.style.filter || videoElement.style.filter !== blurVal) {
         videoElement.style.filter = blurVal;
     }
-    if (!videoElement.muted) {
-        originalMuteState = videoElement.muted;
-        videoElement.muted = true;
-        wasMutedByAd = true;
+    if (!playerElement.style.filter || playerElement.style.filter !== blurVal) {
+        playerElement.style.filter = blurVal;
     }
     if (!intervalID) {
         intervalID = setInterval(clickSkipButton, 250);
     }
 }
 
-function adNotPlaying(videoElement) {
+function adNotPlaying(videoElement, playerElement) {
+    if (wasMutedByAd) {
+        videoElement.muted = originalMuteState;
+        wasMutedByAd = false;
+    }
     if (videoElement.style.opacity !== '1') {
         videoElement.style.opacity = '1';
     }
     if (videoElement.style.filter && videoElement.style.filter === blurVal) {
         videoElement.style.filter = 'none';
     }
-    if (wasMutedByAd) {
-        videoElement.muted = originalMuteState;
-        wasMutedByAd = false;
+    if (playerElement.style.filter && playerElement.style.filter === blurVal) {
+        playerElement.style.filter = 'none';
     }
     if (isVideoPlaying(videoElement)) {
         clearInterval(intervalID);
@@ -278,7 +284,7 @@ function checkAndSkip(playerElement, videoElement) {
             if (checkSkippable(playerElement, videoElement, false)) {
                 skipVid(videoElement);
             } else if (isVideoPlaying(videoElement)) {
-                adNotPlaying(videoElement);
+                adNotPlaying(videoElement, playerElement);
             }
         }, 1000);
     }
@@ -287,7 +293,7 @@ function checkAndSkip(playerElement, videoElement) {
 function vidAdSkip(videoElement) {
     let [initialCheck, playerElem] = vidAdCheck();
     if (initialCheck) {
-        adPlaying(videoElement);
+        adPlaying(videoElement, playerElem);
         if (debounceTimer) {
             clearTimeout(debounceTimer);
         }
@@ -299,7 +305,7 @@ function vidAdSkip(videoElement) {
             clearTimeout(debounceTimer);
         }
         debounceTimer = setTimeout(() => {
-            adNotPlaying(videoElement);
+            adNotPlaying(videoElement, playerElem);
         }, 250);
     }
 }
@@ -467,17 +473,18 @@ function removeAds() {
     });
     topLevelElements.forEach(el => {
         if (!matchesExclusion(el)) {
-            el.style.opacity = '0';
-            el.inert = true;
-        }
-    });
-    // remove elements if visible and not an exclusion
-    topLevelElements.forEach(el => {
-        if (!matchesExclusion(el) && isElementVisible(el, 10, 10)) {
-            log(`Removing ${getElementSelector(el)}`);
+            //el.style.opacity = '0';
+            //el.inert = true;
             el.remove();
         }
     });
+//     // remove elements if visible and not an exclusion
+//     topLevelElements.forEach(el => {
+//         if (!matchesExclusion(el) && isElementVisible(el, 10, 10)) {
+//             log(`Removing ${getElementSelector(el)}`);
+//             el.remove();
+//         }
+//     });
     lastInvocation = 0;
 }
 
