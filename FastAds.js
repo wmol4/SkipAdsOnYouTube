@@ -275,7 +275,11 @@ function adNotPlaying(videoElement) {
 function checkAndSkip(playerElement, videoElement) {
     if (checkSkippable(playerElement, videoElement, false)) {
         setTimeout(() => {
-            skipVid(videoElement);
+            if (checkSkippable(playerElement, videoElement, false)) {
+                skipVid(videoElement);
+            } else if (isVideoPlaying(videoElement)) {
+                adNotPlaying(videoElement);
+            }
         }, 1000);
     }
 }
