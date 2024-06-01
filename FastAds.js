@@ -11,28 +11,8 @@
 // @noframes
 // ==/UserScript==
 
-// Misc Parameters
-let playerElem = null;
-let videoElem = null;
-let wasMutedByAd = false;
-let originalMuteState = false;
-
-// Observers
-let playerChangesObserver = null;
-let playerObserver = null;
-let adObserver = null;
-let isListenerAdded = false;
-let mainRunning = false;
-let intervalID = null;
-let intervalID2 = null;
-let intervalID3 = null;
-let pInterval = null;
-
-// Gate flags
-let lastInvocation = 0;
-let domChanges = true;
-let playerChanges = true;
-let isProcessing = false;
+let debounceTimer;
+let adOpacity = '0.5';
 
 let timeFormatter = new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'numeric',second:'numeric',hour12:false});
 let lastLogTime = null;
@@ -47,174 +27,277 @@ function log(string) {
     console.log(`[Fast Ads] ${timeString}${string}`);
 }
 
-function hasAnyClass(element, classes) {
-    // Check if a class from classes exists in element
-    return classes.some(cls => element.classList.contains(cls));
+function hasAnyClass(element, classes, print=true) {
+    const foundClasses = classes.filter(cls => element.classList.contains(cls));
+
+    if (foundClasses.length > 0) {
+        if (print) { log(`Found ${foundClasses.join(', ')}`); }
+        return true;
+    }
+    return false;
 }
 
-function checkAdClass() { // First Check
+function checkPlayerAdClass(playerElement, print) { // First Check
     // Check if the player has class attributes "ad-interrupting" or "ad-showing"
-    return hasAnyClass(playerElem, ['ad-interrupting', 'ad-showing']);
+    return hasAnyClass(playerElement, ['ad-interrupting', 'ad-showing'], print);
 }
 
-const vidAdSelectors = [
-    "[class*='ad-player-overlay']",
-    "[class*='ytp-flyout-cta']",
-    ];
-const vidAdSelectorString = vidAdSelectors.join(',');
-function checkAdOverlay() { // Second Check
-    // Check if some common ad elements exist
-    return playerElem.querySelectorAll(vidAdSelectorString).length !== 0;
+function hasAnyChildren(parentElement, mySelectorsList, print=true) {
+    const foundSelectors = [];
+    const allElements = parentElement.querySelectorAll(mySelectorsList.join(","));
+
+    for (const element of allElements) {
+        for (const selector of mySelectorsList) {
+            if (element.matches(selector) && !foundSelectors.includes(selector)) {
+                foundSelectors.push(selector);
+                break; // No need to check other selectors for this element
+            }
+        }
+    }
+
+    if (foundSelectors.length > 0) {
+        if (print) { log(`Found: ${foundSelectors.join(", ")}`); }
+        return true;
+    }
+    return false;
 }
 
-function checkAdProgressBar() { // Third Check
-    // If progress bar container is disabled
-    let progressBarContainer = playerElem.querySelector("[class*='ytp-progress-bar-container']");
+function checkPlayerAdChildren(playerElement, print) {
+    return hasAnyChildren(playerElement, ["[class*='ad-player-overlay']", "[class*='ytp-flyout-cta']"], print);
+}
+
+function checkPlayerDisabledProgressBar(playerElement, print=true) {
+    let progressBarContainer = playerElement.querySelector("[class*='ytp-progress-bar-container']");
     let isDisabled;
     if (progressBarContainer) {
         if (progressBarContainer.hasAttribute('disabled')) {
             isDisabled = progressBarContainer.getAttribute('disabled') !== 'false';
             if (isDisabled) {
-                log('Progress Bar attribute "disabled" is "true".');
-                return true;
-            }
-        }
-        if (progressBarContainer.hasAttribute('aria-disabled')) {
-            isDisabled = progressBarContainer.getAttribute('aria-disabled') !== 'false';
-            if (isDisabled) {
-                log('Progress Bar attribute "aria-disabled" is "true".');
+                if (print) { log('Progress Bar attribute "disabled" is "true".'); }
                 return true;
             }
         }
     }
-    // If progress bar is not draggable
-    let progressBar = playerElem.querySelector("[class='ytp-progress-bar']")
+    return false;
+}
+
+function checkPlayerUndraggableProgressBar(playerElement, print=true) {
+    let progressBar = playerElement.querySelector("[class='ytp-progress-bar']")
     if (progressBar && progressBar.hasAttribute('draggable')) {
         const isDraggable = progressBar.getAttribute('draggable');
         if (!isDraggable) {
-            log('Progress Bar attribute "draggable" is "false".');
+            if (print) { log('Progress Bar attribute "draggable" is "false".'); }
             return true;
         }
     }
-    // If the ad progress bar is visible
-    let element = playerElem.querySelector("[class*='ad-persistent-progress']")
+}
+
+function checkPlayerAdProgressBarVisibility(playerElement, print=true) {
+    let element = playerElement.querySelector("[class*='ad-persistent-progress']")
     if (element) {
         let computedStyle = window.getComputedStyle(element);
         if (computedStyle.display !== 'none') {
-            log('Progress Bar "ad-persistent-progress" is visible.');
+            if (print) { log('Progress Bar "ad-persistent-progress" is visible.'); }
             return true;
         }
     }
     return false;
 }
 
-function idFromURL(url, print) {
-    let videoID;
+function checkPlayerProgressBar(playerElement, print) {
+    let check0 = checkPlayerDisabledProgressBar(playerElement, print);
+    if (check0) { return true; }
+    let check1 = checkPlayerUndraggableProgressBar(playerElement, print);
+    if (check1) { return true; }
+    let check2 = checkPlayerAdProgressBarVisibility(playerElement, print);
+    if (check2) { return true; }
+    return false;
+}
+
+function IDUrl(url) {
     if (url.hostname.includes('youtube.com')) {
-        videoID = url.searchParams.get('v');
+        return url.searchParams.get('v');
     } else if (url.hostname.includes('youtu.be')) {
-        videoID = url.pathname.split('/')[1];
+        return url.pathname.split('/')[1];
     }
-    if (print && !videoID) { log('Could not find URL ID'); }
-    return videoID;
+    return null;
 }
 
-function checkVideoIDMismatch(print) { // Fourth Check
-    // Check if the url's watch ID matches the player's video ID matches the video url's watch ID
-    // To block ads which play a different youtube video (ad) instead of a direct ad
-    let urlID = idFromURL(new URL(document.location.href), print); // Page's URL
-    let playerID = idFromURL(new URL(playerElem.getVideoUrl()), print); // Video's URL
-    let videoID = playerElem.getVideoData().video_id; // Video's ID
-    const allIDs = [urlID, playerID, videoID].filter(id => id != null);
-    if (allIDs.length <= 1 || allIDs.every((id, _, array) => id === array[0])) {
-        // if 0 or 1 IDs exist, or all of the IDs are identical
-        return false; // one or no IDs exist
+function ID0() {
+    return IDUrl(new URL(document.location.href));
+}
+
+function ID1(playerElement) {
+    return IDUrl(new URL(playerElement.getVideoUrl()));
+}
+
+function ID2(playerElement) {
+    return playerElement.getVideoData().video_id;
+}
+
+function checkIDMismatch(playerElement, print) {
+    const IDs = [ID0(), ID1(playerElement), ID2(playerElement)].filter(id => id != null);
+    if (IDs.length == 0 || IDs.every((id, _, array) => id === array[0])) {
+        return false;
+    }
+    if (print) {
+        log(`URL ID: ${IDs[0]}`);
+        log(`Player ID: ${IDs[1]}`);
+        log(`Video ID: ${IDs[2]}`);
+    }
+    return true;
+}
+
+function checkAdPlaying(playerElement, print=false) {
+    if (!playerElement) return false;
+    let indicator0 = checkPlayerAdClass(playerElement, print);
+    if (indicator0) return true;
+    let indicator1 = checkIDMismatch(playerElement, print);
+    if (indicator1) return true;
+    let indicator2 = checkPlayerProgressBar(playerElement, print);
+    if (indicator2) return true;
+    let indicator3 = checkPlayerAdChildren(playerElement, print);
+    if (indicator3) return true;
+    return false;
+}
+
+function isVideoVisible(element, minWidth = 100, minHeight = 100) {
+    if (!element) return false;
+
+    function isAncestorVisibleAndNotClipping(elem, childRect) {
+        if (elem === document.body) return true;
+        const styles = window.getComputedStyle(elem);
+
+        // Check visibility
+        if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity < adOpacity) {
+            return false;
+        }
+
+        // Check for potential clipping
+        if (styles.overflow !== 'visible') {
+            const parentRect = elem.getBoundingClientRect();
+            if (childRect.bottom > parentRect.bottom || childRect.top < parentRect.top ||
+                childRect.right > parentRect.right || childRect.left < parentRect.left) {
+                return false;
+            }
+        }
+
+        return isAncestorVisibleAndNotClipping(elem.parentElement, childRect);
+    }
+
+    const styles = window.getComputedStyle(element);
+    if (styles.display === 'none' || styles.visibility === 'hidden' || styles.opacity < adOpacity) {
+        return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width < minWidth || rect.height < minHeight) {
+        return false;
+    }
+
+    if (rect.top >= window.innerHeight || rect.bottom <= 0 ||
+        rect.left >= window.innerWidth || rect.right <= 0) {
+        return false;
+    }
+
+    return isAncestorVisibleAndNotClipping(element.parentElement, rect);
+}
+
+function isVideoPlaying(videoElement) {
+    return (videoElement && !videoElement.paused && !videoElement.ended && videoElement.currentTime > 0);
+}
+
+function checkSkippable(playerElement, videoElement, print=true) {
+    // Final (overly) comprehensive check before actually skipping
+    // Only skip if a video is visible, playing, and is an ad
+    let cond0 = isVideoPlaying(videoElement);
+    if (!cond0) return false;
+    let cond1 = isVideoVisible(videoElement);
+    if (!cond1) return false;
+    let cond2 = checkAdPlaying(playerElement, print);
+    if (!cond2) return false;
+    return true;
+}
+
+function vidAdCheck() {
+    let playerElem = document.querySelector('.html5-video-player');
+    let vidCheck = checkAdPlaying(playerElem, false);
+    return [vidCheck, playerElem];
+}
+
+function getVideos() {
+    return document.querySelectorAll('video');
+}
+
+function skipVid(videoElement) {
+    videoElement.currentTime = videoElement.duration;
+    log(`Skipped ${videoElement.duration}s`);
+}
+
+let wasMutedByAd = false;
+let originalMuteState = false;
+let intervalID = null;
+let blurVal = 'blur(50px)';
+function adPlaying(videoElement) {
+    if (videoElement.style.opacity === '1') {
+        videoElement.style.opacity = adOpacity;
+    }
+    if (!videoElement.style.filter || videoElement.style.filter !== blurVal) {
+        videoElement.style.filter = blurVal;
+    }
+    if (!videoElement.muted) {
+        originalMuteState = videoElement.muted;
+        videoElement.muted = true;
+        wasMutedByAd = true;
+    }
+    if (!intervalID) {
+        intervalID = setInterval(clickSkipButton, 250);
+    }
+}
+
+function adNotPlaying(videoElement) {
+    if (videoElement.style.opacity !== '1') {
+        videoElement.style.opacity = '1';
+    }
+    if (videoElement.style.filter && videoElement.style.filter === blurVal) {
+        videoElement.style.filter = 'none';
+    }
+    if (wasMutedByAd) {
+        videoElement.muted = originalMuteState;
+        wasMutedByAd = false;
+    }
+    if (isVideoPlaying(videoElement)) {
+        clearInterval(intervalID);
+        intervalID = null;
+    }
+}
+
+function checkAndSkip(playerElement, videoElement) {
+    if (checkSkippable(playerElement, videoElement, false)) {
+        setTimeout(() => {
+            skipVid(videoElement);
+        }, 1000);
+    }
+}
+
+function vidAdSkip(videoElement) {
+    let [initialCheck, playerElem] = vidAdCheck();
+    if (initialCheck) {
+        adPlaying(videoElement);
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+        }
+        debounceTimer = setTimeout(() => {
+            checkAndSkip(playerElem, videoElement);
+        }, 500);
     } else {
-        if (print) {
-            log(`urlID (location.href): ${urlID} | playerID (playerElem.getVideoUrl()): ${playerID} | videoID (playerElem.getVideoData().video_id): ${videoID}`);
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
         }
-        return true; // mismatch in IDs
+        debounceTimer = setTimeout(() => {
+            adNotPlaying(videoElement);
+        }, 250);
     }
-}
-
-function checkAdPlaying(print) {
-    let a = checkAdClass();
-    if (a) { return a; }
-    let b = checkAdOverlay();
-    if (b) { return b; }
-    let c = checkAdProgressBar();
-    if (c) { return c; }
-    let d = checkVideoIDMismatch(print);
-    if (d) { return d; }
-//     const type = [];
-//     if (a) {
-//         type.push('a');
-//     }
-//     if (b) {
-//         type.push('b');
-//     }
-//     if (c) {
-//         type.push('c');
-//     }
-//     if (d) {
-//         type.push('d');
-//     }
-//     const typeStr = type.join('');
-//     const out = a || b || c || d;
-//     if (out) {
-//         log(typeStr);
-//     }
-//     return out
-    // Check if an ad is playing
-//     return checkAdClass() || checkAdOverlay() || checkAdProgressBar() || checkVideoIDMismatch(print);
-}
-
-function speedUpAds() {
-    if (isProcessing === true) { return; }
-    isProcessing = true;
-    if (checkAdPlaying(false)) {
-        // If just switching from a video to an ad, hide the video/player and set isHidden to true
-        if (playerElem.style.opacity === '1' || videoElem.style.opacity === '1') {
-            log('Get blocked, kid');
-            playerElem.style.opacity = '0.3';
-            videoElem.style.opacity = '0.3';
-        }
-        // If the video isn't muted, mute it and make note to unmute it later
-        // However, if the video is muted, we don't need to do anything
-        if (!videoElem.muted) {
-            originalMuteState = videoElem.muted;
-            videoElem.muted = true;
-            wasMutedByAd = true;
-        }
-        // Event listener to click skip ad button and skip to the end of the ad
-        if (!isListenerAdded) {
-            isListenerAdded = setInterval(skipAd, 250);
-        }
-        if (!intervalID) {
-            intervalID = setInterval(clickSkipButton, 250);
-        }
-    } else {
-        // If switching from an ad to a video, show the video/player and set isHidden to false
-        // Also if the video wasn't muted before the ad, unmute the video
-        if (playerElem.style.opacity !== '1' || videoElem.style.opacity !== '1') {
-            playerElem.style.opacity = '1';
-            videoElem.style.opacity = '1';
-        }
-        if (wasMutedByAd) {
-            videoElem.muted = originalMuteState;
-            wasMutedByAd = false;
-        }
-        if (isListenerAdded) {
-            clearInterval(isListenerAdded);
-            isListenerAdded = null;
-        }
-        // Only stop clicking skip button if the video is playing
-        if (!videoElem.paused && !videoElem.ended) {
-            clearInterval(intervalID);
-            intervalID = null;
-        }
-    }
-    isProcessing = false;
 }
 
 function clickSkipButton() {
@@ -231,107 +314,13 @@ function clickSkipButton() {
     });
 }
 
-function skipAd() {
-    videoElem = getVideo();
-    // Set currentTime to duration if metadata exists and an ad is playing
-    const isMetadataLoaded = videoElem.readyState >= 2;
-    const isAdPlaying = checkAdPlaying(isMetadataLoaded);
-    if (isMetadataLoaded && isAdPlaying) {
-        videoElem.currentTime = videoElem.duration;
-        log(`Skipped ${videoElem.duration}s long ad`);
-    }
-}
-
-function querySelectorDeep(selector, root=document) {
-  let targetElement = root.querySelector(selector);
-  if (targetElement) {
-    return targetElement;
-  }
-
-  let allElements = root.querySelectorAll("*");
-  for (let i = 0; i < allElements.length; i++) {
-    let currentElement = allElements[i];
-
-    if (currentElement.shadowRoot) {
-      let elementInShadowRoot = querySelectorDeep(selector, currentElement.shadowRoot);
-      if (elementInShadowRoot) {
-        return elementInShadowRoot;
-      }
-    }
-  }
-  return null;
-}
-
-function getVideo() {
-    if (playerElem) {
-        let vid = querySelectorDeep('video', playerElem);
-        if (vid) {
-            return vid;
-        }
-    }
-    let vid = querySelectorDeep('video');
-    if (vid) {
-        return vid;
-    }
-    return null;
-}
-
-// function getVideo() {
-//     return document.querySelector('video');
-// }
-
-let videoLoaded = false;
-function waitForVideo(callback) {
-    // Assumes playerElem exists, returns once videoElem exists
-    videoElem = getVideo();
-    if (videoElem) {
-        videoLoaded = true;
-        callback();
-    } else {
-        videoLoaded = false;
-        setTimeout(() => waitForVideo(callback), 50);
-    }
-}
-
-function observePlayerChanges() {
-    // Triggers speedUpAds when playerElem changes
-    // Reconnects videoElem if it disappears
-    playerChangesObserver = new MutationObserver(mutations => {
-        for (let mutation of mutations) {
-            if (mutation.type === 'childList') {
-                if (!playerElem.contains(videoElem)) {
-                    //log('Video missing from player');
-                    waitForVideo(speedUpAds);
-                    //break;
-                }
-            } else if (mutation.type === 'attributes') {
-                if (mutation.attributeName === 'class') {
-                    speedUpAds();
-                    //break;
-                }
-            }
-        }
-    });
-
-    playerChangesObserver.observe(playerElem, {
-        attributes: true,
-        attributeFilter: ['class'],
-        childList: true,
-        subtree: true
-    });
-}
-
 function seekEvent(e) {
     // Ensure the event doesn't fire in input fields
-    if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea' || !playerElem) {
+    if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') {
         return;
     }
-    //const video = playerElem.querySelector('video');
-    const video = getVideo();
-    if (!video) {
-        videoLoaded = false;
-        return;
-    }
+    const video = document.querySelector('video');
+    if (!video) return;
 
     // A and D seek back/forward 30s
     // Q and E seek back/forward 60s
@@ -366,43 +355,24 @@ function seekEvent(e) {
     }
 }
 
-function checkVidAds() {
-    if (playerChanges) {
-        playerChanges = false;
-        playerElem = document.querySelector('.html5-video-player');
-        if (playerElem) {
-            waitForVideo(() => {
-                speedUpAds();
-                observePlayerChanges();
-            });
-            // Once playerElem exists, disconnect observer and clear the check interval
-            if (playerObserver) {
-                playerObserver.disconnect();
-                playerObserver = null;
-            }
-            clearInterval(intervalID3);
-            intervalID3 = null;
-        }
+function isElementVisible(element, minWidth = 10, minHeight = 10) {
+    if (!element) return false;
+
+    const styles = window.getComputedStyle(element);
+    if (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.1) {
+        return false;
     }
+    return true;
 }
 
-function waitForPlayerAndObserve() {
-    checkVidAds();
-    if (!intervalID3) {
-        intervalID3 = setInterval(checkVidAds, 100);
-    }
-    playerObserver = new MutationObserver(function(mutations) {
-        playerChanges = true;
-    });
-    playerObserver.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-    // Temp placement for this function
-    changeLogoLink();
+// Observers
+let adObserver = null;
+let mainRunning = false;
+let intervalID2 = null;
 
-}
-
+// Gate flags
+let lastInvocation = 0;
+let domChanges = true;
 function getPermutationsOfPairs(arr) {
     let result = [];
     for (let i = 0; i < arr.length; i++) {
@@ -462,26 +432,13 @@ function getElementSelector(element) {
     return 'misc ad';
 }
 
-function isElementVisible(el) {
-    const rect = el.getBoundingClientRect();
-    const style = window.getComputedStyle(el);
-
-    return (
-        style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        rect.width > 1 &&
-        rect.height > 1 &&
-        rect.top > 1 &&
-        rect.left > 1
-    );
-}
-
 function matchesExclusion(el) {
     return el.matches('.html5-video-player') || // main video player
            el.matches('video') || // main video element
            el.matches('[class*="skip"] button') || // skip ad button
            el.matches('[class*="page-header-banner"]') ||
-           el.matches("[class*='ad-persistent-progress']"); // used for determining if an ad is playing
+           el.matches("[class*='ad-persistent-progress']") || // used for determining if an ad is playing
+           el.matches("[class*='ad-player-overlay']"); // used for determining if an ad is playing
 }
 
 function removeAds() {
@@ -507,11 +464,12 @@ function removeAds() {
     topLevelElements.forEach(el => {
         if (!matchesExclusion(el)) {
             el.style.opacity = '0';
+            el.inert = true;
         }
     });
     // remove elements if visible and not an exclusion
     topLevelElements.forEach(el => {
-        if (!matchesExclusion(el) && isElementVisible(el)) {
+        if (!matchesExclusion(el) && isElementVisible(el, 10, 10)) {
             log(`Removing ${getElementSelector(el)}`);
             el.remove();
         }
@@ -553,12 +511,6 @@ function waitForAdsAndObserve() {
     });
 }
 
-function assertPlayer() {
-    if (!document.querySelector('.html5-video-player') && !playerObserver) {
-        waitForPlayerAndObserve();
-    }
-}
-
 function changeLogoLink() {
     // When a special promotion is going on, clicking the top left youtube
     // icon will take you back to the default home screen, not the promotional page
@@ -576,18 +528,9 @@ function changeLogoLink() {
 function bodyFunction() {
     if (mainRunning) return;
     mainRunning = true;
-    waitForPlayerAndObserve();
     waitForAdsAndObserve();
     document.addEventListener('keydown', seekEvent);
-
-    // Start clicking skip button immediately
-    if (!intervalID) {
-        intervalID = setInterval(clickSkipButton, 250);
-    }
-    // Occasionally check that the player still exists
-    if (!pInterval) {
-        pInterval = setInterval(assertPlayer, 5000);
-    }
+    changeLogoLink();
 }
 
 function waitForBody(callback) {
@@ -599,24 +542,11 @@ function waitForBody(callback) {
     }
 }
 
+document.addEventListener('durationchange', function(event) {
+    if (event.target.tagName === 'VIDEO') {
+        vidAdSkip(event.target);
+    }
+}, true); // Use capturing phase to catch the event as it propagates upwards
+
 waitForBody(bodyFunction);
 
-function onUpdate() {
-    waitForVideo(speedUpAds);
-    log('Page Data Updated');
-}
-
-function onNavStart() {
-    waitForVideo(speedUpAds);
-    log('Page Navigation Started');
-}
-
-function onNavStop() {
-    waitForVideo(speedUpAds);
-    log('Page Navigation Finished');
-}
-
-// To get all existing events, type this in console: "getEventListeners(document)"
-//window.addEventListener('yt-page-data-updated', onUpdate);
-window.addEventListener('yt-navigate-start', onNavStart);
-//window.addEventListener('yt-navigate-finish', onNavStop);
