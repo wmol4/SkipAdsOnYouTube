@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 let debounceTimer;
-let adOpacity = '0.25';
+let adOpacity = '0.1';
 
 let timeFormatter = new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'numeric',second:'numeric',hour12:false});
 let lastLogTime = null;
@@ -220,9 +220,7 @@ function checkSkippable(playerElement, videoElement, print=true) {
 }
 
 function vidAdCheck() {
-    let playerElem = document.querySelector('.html5-video-player');
-    let vidCheck = checkAdPlaying(playerElem, false);
-    return [vidCheck, playerElem];
+    return checkAdPlaying(playerElem, false);
 }
 
 function getVideos() {
@@ -232,6 +230,10 @@ function getVideos() {
 function skipVid(videoElement) {
     videoElement.currentTime = videoElement.duration;
     log(`Skipped ${videoElement.duration}s`);
+    if (!document.body.classList.contains('efyt-mini-player')) {
+        document.body.classList.add('efyt-mini-player');
+        document.body.classList.remove('efyt-mini-player');
+    }
 }
 
 let wasMutedByAd = false;
@@ -270,7 +272,7 @@ function checkAndSkip(playerElement, videoElement) {
     if (checkSkippable(playerElement, videoElement, false)) {
         log('Ad found');
         const timeRemaining = Math.max(0, 1500 - videoElement.currentTime * 1000); // wait until video is at 1.5 seconds in
-        log(`Waiting ${timeRemaining}ms`);
+        //log(`Waiting ${timeRemaining}ms`);
         setTimeout(() => {
             skipVid(videoElement);
         }, timeRemaining);
@@ -278,9 +280,7 @@ function checkAndSkip(playerElement, videoElement) {
 }
 
 function vidAdSkip(videoElement) {
-    let [initialCheck, playerElem] = vidAdCheck();
-    if (initialCheck) {
-        adPlaying(videoElement);
+    if (vidAdCheck()) {
         checkAndSkip(playerElem, videoElement);
     } else {
         adNotPlaying(videoElement);
@@ -354,7 +354,6 @@ function isElementVisible(element, minWidth = 10, minHeight = 10) {
 
 // Observers
 let adObserver = null;
-let mainRunning = false;
 let intervalID2 = null;
 
 // Gate flags
@@ -514,8 +513,6 @@ function changeLogoLink() {
 }
 
 function bodyFunction() {
-    if (mainRunning) return;
-    mainRunning = true;
     waitForAdsAndObserve();
     document.addEventListener('keydown', seekEvent);
     changeLogoLink();
@@ -530,17 +527,43 @@ function waitForBody(callback) {
     }
 }
 
-document.addEventListener('play', function(event) {
-    log('Play event triggered');
-    if (event.target.tagName === 'VIDEO') {
-        if (debounceTimer) {
-            clearTimeout(debounceTimer);
-        }
-        debounceTimer = setTimeout(() => {
-            vidAdSkip(event.target);
-        }, 250);
+let playerElem;
+function waitForPlayer(callback) {
+    playerElem = document.querySelector('.html5-video-player');
+    if (playerElem) {
+        callback();
+    } else {
+        setTimeout(() => waitForPlayer(callback), 50);
     }
-}, true); // Use capturing phase to catch the event as it propagates upwards
+}
+
+function listen(eventStr, targetTag, debounceDuration, callback) {
+    let debounceTimer;
+    document.addEventListener(eventStr, function(event) {
+        log(`${eventStr} event triggered.`);
+        if (event.target.tagName === targetTag) {
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+            }
+            debounceTimer = setTimeout(() => {
+                callback(event.target);
+            }, debounceDuration);
+        }
+    }, true);
+}
+
+function quickCheck(videoElement) {
+    if (vidAdCheck()) {
+        adPlaying(videoElement);
+    }
+}
 
 waitForBody(bodyFunction);
+
+waitForPlayer(() => {
+    listen('play', 'VIDEO', 0, quickCheck);
+    listen('play', 'VIDEO', 250, vidAdSkip);
+});
+
+
 
