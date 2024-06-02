@@ -204,7 +204,7 @@ function isVideoVisible(element, minWidth = 100, minHeight = 100) {
 }
 
 function isVideoPlaying(videoElement) {
-    return (videoElement && !videoElement.paused && !videoElement.ended && videoElement.currentTime > 0);
+    return (videoElement && !videoElement.paused && !videoElement.ended);// && videoElement.currentTime > 0);
 }
 
 function checkSkippable(playerElement, videoElement, print=true) {
@@ -238,7 +238,7 @@ let wasMutedByAd = false;
 let originalMuteState = false;
 let intervalID = null;
 let blurVal = 'blur(10px)';
-function adPlaying(videoElement, playerElement) {
+function adPlaying(videoElement) {
     if (!videoElement.muted) {
         originalMuteState = videoElement.muted;
         videoElement.muted = true;
@@ -247,18 +247,12 @@ function adPlaying(videoElement, playerElement) {
     if (videoElement.style.opacity === '1') {
         videoElement.style.opacity = adOpacity;
     }
-//     if (!videoElement.style.filter || videoElement.style.filter !== blurVal) {
-//         videoElement.style.filter = blurVal;
-//     }
-//     if (!playerElement.style.filter || playerElement.style.filter !== blurVal) {
-//         playerElement.style.filter = blurVal;
-//     }
     if (!intervalID) {
         intervalID = setInterval(clickSkipButton, 250);
     }
 }
 
-function adNotPlaying(videoElement, playerElement) {
+function adNotPlaying(videoElement) {
     if (wasMutedByAd) {
         videoElement.muted = originalMuteState;
         wasMutedByAd = false;
@@ -266,12 +260,6 @@ function adNotPlaying(videoElement, playerElement) {
     if (videoElement.style.opacity !== '1') {
         videoElement.style.opacity = '1';
     }
-//     if (videoElement.style.filter && videoElement.style.filter === blurVal) {
-//         videoElement.style.filter = 'none';
-//     }
-//     if (playerElement.style.filter && playerElement.style.filter === blurVal) {
-//         playerElement.style.filter = 'none';
-//     }
     if (isVideoPlaying(videoElement)) {
         clearInterval(intervalID);
         intervalID = null;
@@ -280,33 +268,22 @@ function adNotPlaying(videoElement, playerElement) {
 
 function checkAndSkip(playerElement, videoElement) {
     if (checkSkippable(playerElement, videoElement, false)) {
+        log('Ad found');
+        const timeRemaining = Math.max(0, 1500 - videoElement.currentTime * 1000); // wait until video is at 1.5 seconds in
+        log(`Waiting ${timeRemaining}ms`);
         setTimeout(() => {
-            if (checkSkippable(playerElement, videoElement, false)) {
-                skipVid(videoElement);
-            } else if (isVideoPlaying(videoElement)) {
-                adNotPlaying(videoElement, playerElement);
-            }
-        }, 1000);
+            skipVid(videoElement);
+        }, timeRemaining);
     }
 }
 
 function vidAdSkip(videoElement) {
     let [initialCheck, playerElem] = vidAdCheck();
     if (initialCheck) {
-        adPlaying(videoElement, playerElem);
-        if (debounceTimer) {
-            clearTimeout(debounceTimer);
-        }
-        debounceTimer = setTimeout(() => {
-            checkAndSkip(playerElem, videoElement);
-        }, 500);
+        adPlaying(videoElement);
+        checkAndSkip(playerElem, videoElement);
     } else {
-        if (debounceTimer) {
-            clearTimeout(debounceTimer);
-        }
-        debounceTimer = setTimeout(() => {
-            adNotPlaying(videoElement, playerElem);
-        }, 250);
+        adNotPlaying(videoElement);
     }
 }
 
@@ -553,10 +530,15 @@ function waitForBody(callback) {
     }
 }
 
-//document.addEventListener('durationchange', function(event) {
 document.addEventListener('play', function(event) {
+    log('Play event triggered');
     if (event.target.tagName === 'VIDEO') {
-        vidAdSkip(event.target);
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+        }
+        debounceTimer = setTimeout(() => {
+            vidAdSkip(event.target);
+        }, 250);
     }
 }, true); // Use capturing phase to catch the event as it propagates upwards
 
