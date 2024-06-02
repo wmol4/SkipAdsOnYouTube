@@ -12,7 +12,7 @@
 // ==/UserScript==
 
 let debounceTimer;
-let adOpacity = '0.5';
+let adOpacity = '0.25';
 
 let timeFormatter = new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'numeric',second:'numeric',hour12:false});
 let lastLogTime = null;
@@ -212,8 +212,8 @@ function checkSkippable(playerElement, videoElement, print=true) {
     // Only skip if a video is visible, playing, and is an ad
     let cond0 = isVideoPlaying(videoElement);
     if (!cond0) return false;
-    let cond1 = isVideoVisible(videoElement);
-    if (!cond1) return false;
+    //let cond1 = isVideoVisible(videoElement);
+    //if (!cond1) return false;
     let cond2 = checkAdPlaying(playerElement, print);
     if (!cond2) return false;
     return true;
@@ -237,7 +237,7 @@ function skipVid(videoElement) {
 let wasMutedByAd = false;
 let originalMuteState = false;
 let intervalID = null;
-let blurVal = 'blur(50px)';
+let blurVal = 'blur(10px)';
 function adPlaying(videoElement, playerElement) {
     if (!videoElement.muted) {
         originalMuteState = videoElement.muted;
@@ -247,12 +247,12 @@ function adPlaying(videoElement, playerElement) {
     if (videoElement.style.opacity === '1') {
         videoElement.style.opacity = adOpacity;
     }
-    if (!videoElement.style.filter || videoElement.style.filter !== blurVal) {
-        videoElement.style.filter = blurVal;
-    }
-    if (!playerElement.style.filter || playerElement.style.filter !== blurVal) {
-        playerElement.style.filter = blurVal;
-    }
+//     if (!videoElement.style.filter || videoElement.style.filter !== blurVal) {
+//         videoElement.style.filter = blurVal;
+//     }
+//     if (!playerElement.style.filter || playerElement.style.filter !== blurVal) {
+//         playerElement.style.filter = blurVal;
+//     }
     if (!intervalID) {
         intervalID = setInterval(clickSkipButton, 250);
     }
@@ -266,12 +266,12 @@ function adNotPlaying(videoElement, playerElement) {
     if (videoElement.style.opacity !== '1') {
         videoElement.style.opacity = '1';
     }
-    if (videoElement.style.filter && videoElement.style.filter === blurVal) {
-        videoElement.style.filter = 'none';
-    }
-    if (playerElement.style.filter && playerElement.style.filter === blurVal) {
-        playerElement.style.filter = 'none';
-    }
+//     if (videoElement.style.filter && videoElement.style.filter === blurVal) {
+//         videoElement.style.filter = 'none';
+//     }
+//     if (playerElement.style.filter && playerElement.style.filter === blurVal) {
+//         playerElement.style.filter = 'none';
+//     }
     if (isVideoPlaying(videoElement)) {
         clearInterval(intervalID);
         intervalID = null;
@@ -553,7 +553,8 @@ function waitForBody(callback) {
     }
 }
 
-document.addEventListener('durationchange', function(event) {
+//document.addEventListener('durationchange', function(event) {
+document.addEventListener('play', function(event) {
     if (event.target.tagName === 'VIDEO') {
         vidAdSkip(event.target);
     }
