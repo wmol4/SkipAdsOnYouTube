@@ -278,7 +278,7 @@ function adNotPlaying(videoElement) {
 
 function checkAndSkip(playerElement, videoElement) {
     if (checkSkippable(playerElement, videoElement, false)) {
-        const timeRemaining = Math.max(0, 1250 - videoElement.currentTime * 1000); // wait until video is at 1.25 seconds in
+        const timeRemaining = Math.max(0, 1500 - videoElement.currentTime * 1000); // wait until video is at 1.5 seconds in
         setTimeout(() => {
             skipVid(videoElement);
         }, timeRemaining);
