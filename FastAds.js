@@ -229,7 +229,9 @@ function getVideos() {
 
 function skipVid(videoElement) {
     videoElement.currentTime = videoElement.duration;
-    log(`Skipped ${videoElement.duration}s`);
+    log(`Ad Found. Skipped ${videoElement.duration}s`);
+
+    // My janky way of possibly preventing black screen pauses after skipping:
     if (!document.body.classList.contains('efyt-mini-player')) {
         document.body.classList.add('efyt-mini-player');
         document.body.classList.remove('efyt-mini-player');
@@ -249,6 +251,9 @@ function adPlaying(videoElement) {
     if (videoElement.style.opacity === '1') {
         videoElement.style.opacity = adOpacity;
     }
+    if (playerElem && playerElem.style.opacity === '1') {
+        playerElem.style.opacity = adOpacity;
+    }
     if (!intervalID) {
         intervalID = setInterval(clickSkipButton, 250);
     }
@@ -262,6 +267,9 @@ function adNotPlaying(videoElement) {
     if (videoElement.style.opacity !== '1') {
         videoElement.style.opacity = '1';
     }
+    if (playerElem && playerElem.style.opacity !== '1') {
+        playerElem.style.opacity = '1';
+    }
     if (isVideoPlaying(videoElement)) {
         clearInterval(intervalID);
         intervalID = null;
@@ -270,9 +278,7 @@ function adNotPlaying(videoElement) {
 
 function checkAndSkip(playerElement, videoElement) {
     if (checkSkippable(playerElement, videoElement, false)) {
-        log('Ad found');
-        const timeRemaining = Math.max(0, 1500 - videoElement.currentTime * 1000); // wait until video is at 1.5 seconds in
-        //log(`Waiting ${timeRemaining}ms`);
+        const timeRemaining = Math.max(0, 1250 - videoElement.currentTime * 1000); // wait until video is at 1.25 seconds in
         setTimeout(() => {
             skipVid(videoElement);
         }, timeRemaining);
@@ -342,11 +348,11 @@ function seekEvent(e) {
     }
 }
 
-function isElementVisible(element, minWidth = 10, minHeight = 10) {
+function isElementVisible(element) {
     if (!element) return false;
 
     const styles = window.getComputedStyle(element);
-    if (styles.display === 'none' || styles.visibility === 'hidden' || parseFloat(styles.opacity) < 0.1) {
+    if (styles.display === 'none' || styles.visibility === 'hidden') {// || parseFloat(styles.opacity) < 0.1) {
         return false;
     }
     return true;
@@ -447,20 +453,17 @@ function removeAds() {
             });
         }
     });
+    // remove if visible, else just hide it (removing some invisible ads seems to create long pauses of a black screen)
     topLevelElements.forEach(el => {
         if (!matchesExclusion(el)) {
-            //el.style.opacity = '0';
-            //el.inert = true;
-            el.remove();
+            if (isElementVisible(el)) {
+                log(`Removing ${getElementSelector(el)}`);
+                el.remove();
+            } else {
+                el.style.opacity = '0';
+            }
         }
     });
-//     // remove elements if visible and not an exclusion
-//     topLevelElements.forEach(el => {
-//         if (!matchesExclusion(el) && isElementVisible(el, 10, 10)) {
-//             log(`Removing ${getElementSelector(el)}`);
-//             el.remove();
-//         }
-//     });
     lastInvocation = 0;
 }
 
@@ -471,24 +474,30 @@ function checkAds() {
     }
 }
 const observationThresh = 100;
+const checkInterval = 1000
 function waitForAdsAndObserve() {
+    //if enough changes happen, then search and kill ads at the next interval
     checkAds();
     if (!intervalID2) {
-        intervalID2 = setInterval(checkAds, 250);
+        intervalID2 = setInterval(checkAds, checkInterval);
     }
     let observationCounter = 0;
     adObserver = new MutationObserver(function(mutations) {
-        for (let mutation of mutations) {
-            if (mutation.addedNodes.length > 0) {
+        if (!domChanges) {
+            //check if any nodes are added
+            for (let mutation of mutations) {
+                if (mutation.addedNodes.length > 0) {
+                    domChanges = true;
+                    observationCounter = 0;
+                    break;
+                }
+            }
+            //check every observationThresh body changes
+            observationCounter ++;
+            if (observationCounter >= observationThresh) {
                 domChanges = true;
                 observationCounter = 0;
-                break;
             }
-        }
-        observationCounter ++;
-        if (observationCounter >= observationThresh) {
-            domChanges = true;
-            observationCounter = 0;
         }
     });
 
@@ -513,6 +522,10 @@ function changeLogoLink() {
 }
 
 function bodyFunction() {
+    waitForPlayer(() => {
+        listen('play', 'VIDEO', 0, quickCheck);
+        listen('play', 'VIDEO', 250, vidAdSkip);
+    });
     waitForAdsAndObserve();
     document.addEventListener('keydown', seekEvent);
     changeLogoLink();
@@ -540,7 +553,7 @@ function waitForPlayer(callback) {
 function listen(eventStr, targetTag, debounceDuration, callback) {
     let debounceTimer;
     document.addEventListener(eventStr, function(event) {
-        log(`${eventStr} event triggered.`);
+        //log(`${eventStr} event triggered.`);
         if (event.target.tagName === targetTag) {
             if (debounceTimer) {
                 clearTimeout(debounceTimer);
@@ -559,11 +572,4 @@ function quickCheck(videoElement) {
 }
 
 waitForBody(bodyFunction);
-
-waitForPlayer(() => {
-    listen('play', 'VIDEO', 0, quickCheck);
-    listen('play', 'VIDEO', 250, vidAdSkip);
-});
-
-
 
