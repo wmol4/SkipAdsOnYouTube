@@ -285,9 +285,19 @@ function checkAndSkip(playerElement, videoElement) {
     }
 }
 
+function waitForData(callback, videoElement) {
+    if (videoElement.readyState > 2) {
+        callback();
+    } else {
+        setTimeout(() => waitForData(callback), 50);
+    }
+}
+
 function vidAdSkip(videoElement) {
     if (vidAdCheck()) {
-        checkAndSkip(playerElem, videoElement);
+        waitForData(() => {
+            checkAndSkip(playerElem, videoElement);
+        }, videoElement);
     } else {
         adNotPlaying(videoElement);
     }
