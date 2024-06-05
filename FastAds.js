@@ -13,6 +13,20 @@
 
 let debounceTimer;
 let adOpacity = '0.1';
+let adObserver = null;
+let intervalID1 = null;
+let intervalID2 = null;
+let playerElem;
+let videoElement;
+let keepChecking;
+let skipTime = 1.5;
+let wasMutedByAd = false;
+let originalMuteState = false;
+let intervalID = null;
+let lastInvocation = 0;
+let domChanges = true;
+const observationThresh = 100;
+const checkInterval = 1000
 
 let timeFormatter = new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'numeric',second:'numeric',hour12:false});
 let lastLogTime = null;
@@ -212,10 +226,8 @@ function checkSkippable(playerElement, videoElement, print=true) {
     // Only skip if a video is visible, playing, and is an ad
     let cond0 = isVideoPlaying(videoElement);
     if (!cond0) return false;
-    //let cond1 = isVideoVisible(videoElement);
-    //if (!cond1) return false;
-    let cond2 = checkAdPlaying(playerElement, print);
-    if (!cond2) return false;
+    let cond1 = checkAdPlaying(playerElement, print);
+    if (!cond1) return false;
     return true;
 }
 
@@ -230,18 +242,9 @@ function getVideos() {
 function skipVid(videoElement) {
     videoElement.currentTime = videoElement.duration;
     log(`Ad Found. Skipped ${videoElement.duration}s`);
-
-    // My janky way of possibly preventing black screen pauses after skipping:
-    if (!document.body.classList.contains('efyt-mini-player')) {
-        document.body.classList.add('efyt-mini-player');
-        document.body.classList.remove('efyt-mini-player');
-    }
 }
 
-let wasMutedByAd = false;
-let originalMuteState = false;
-let intervalID = null;
-let blurVal = 'blur(10px)';
+
 function adPlaying(videoElement) {
     if (!videoElement.muted) {
         originalMuteState = videoElement.muted;
@@ -276,30 +279,42 @@ function adNotPlaying(videoElement) {
     }
 }
 
-function checkAndSkip(playerElement, videoElement) {
-    if (checkSkippable(playerElement, videoElement, false)) {
-        const timeRemaining = Math.max(0, 1500 - videoElement.currentTime * 1000); // wait until video is at 1.5 seconds in
-        setTimeout(() => {
-            skipVid(videoElement);
-        }, timeRemaining);
-    }
-}
 
-function waitForData(callback, videoElement) {
-    if (videoElement.readyState > 2) {
-        callback();
-    } else {
-        setTimeout(() => waitForData(callback, videoElement), 50);
-    }
-}
-
-function vidAdSkip(videoElement) {
-    if (vidAdCheck()) {
-        waitForData(() => {
-            checkAndSkip(playerElem, videoElement);
-        }, videoElement);
-    } else {
+function checkAndSkip(playerElement) {
+    // this function is called every interval1 after a play starts
+    const currentTime = videoElement.currentTime;
+    if (vidAdCheck()) { // ad playing
+        adPlaying(videoElement);
+        if ((currentTime >= skipTime) && keepChecking) {
+            keepChecking = false;
+            if (checkSkippable(playerElement, videoElement, false)) {
+                skipVid(videoElement);
+                clearInterval(intervalID1);
+                intervalID1 = null;
+            } else {
+                keepChecking = true;
+            }
+        } else {
+            keepChecking = true;
+        }
+    } else { // ad not playing
         adNotPlaying(videoElement);
+        if ((currentTime >= skipTime) && keepChecking) {
+            keepChecking = false;
+            clearInterval(intervalID1);
+            intervalID1 = null;
+        } else {
+            keepChecking = true;
+        }
+    }
+}
+
+function vidAdSkip() {
+    if (!intervalID1) { // start checking periodically
+        keepChecking = true;
+        intervalID1 = setInterval(() => {
+            checkAndSkip(playerElem);
+        }, 100);
     }
 }
 
@@ -368,13 +383,6 @@ function isElementVisible(element) {
     return true;
 }
 
-// Observers
-let adObserver = null;
-let intervalID2 = null;
-
-// Gate flags
-let lastInvocation = 0;
-let domChanges = true;
 function getPermutationsOfPairs(arr) {
     let result = [];
     for (let i = 0; i < arr.length; i++) {
@@ -470,7 +478,7 @@ function removeAds() {
                 log(`Removing ${getElementSelector(el)}`);
                 el.remove();
             } else {
-                el.style.opacity = '0';
+                el.style.opacity = '0'; // maybe unnecessary
             }
         }
     });
@@ -483,8 +491,7 @@ function checkAds() {
         removeAds();
     }
 }
-const observationThresh = 100;
-const checkInterval = 1000
+
 function waitForAdsAndObserve() {
     //if enough changes happen, then search and kill ads at the next interval
     checkAds();
@@ -533,8 +540,7 @@ function changeLogoLink() {
 
 function bodyFunction() {
     waitForPlayer(() => {
-        listen('play', 'VIDEO', 0, quickCheck);
-        listen('play', 'VIDEO', 500, vidAdSkip);
+        listen('play', 'VIDEO', 0, onPlay);
     });
     waitForAdsAndObserve();
     document.addEventListener('keydown', seekEvent);
@@ -550,7 +556,7 @@ function waitForBody(callback) {
     }
 }
 
-let playerElem;
+
 function waitForPlayer(callback) {
     playerElem = document.querySelector('.html5-video-player');
     if (playerElem) {
@@ -558,6 +564,15 @@ function waitForPlayer(callback) {
     } else {
         setTimeout(() => waitForPlayer(callback), 50);
     }
+}
+
+function setVideo(elem) {
+    videoElement = elem;
+}
+
+function onPlay(elem) {
+    setVideo(elem);
+    vidAdSkip();
 }
 
 function listen(eventStr, targetTag, debounceDuration, callback) {
@@ -573,12 +588,6 @@ function listen(eventStr, targetTag, debounceDuration, callback) {
             }, debounceDuration);
         }
     }, true);
-}
-
-function quickCheck(videoElement) {
-    if (vidAdCheck()) {
-        adPlaying(videoElement);
-    }
 }
 
 waitForBody(bodyFunction);
