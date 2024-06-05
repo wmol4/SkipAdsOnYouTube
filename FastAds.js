@@ -534,7 +534,7 @@ function changeLogoLink() {
 function bodyFunction() {
     waitForPlayer(() => {
         listen('play', 'VIDEO', 0, quickCheck);
-        listen('play', 'VIDEO', 250, vidAdSkip);
+        listen('play', 'VIDEO', 500, vidAdSkip);
     });
     waitForAdsAndObserve();
     document.addEventListener('keydown', seekEvent);
