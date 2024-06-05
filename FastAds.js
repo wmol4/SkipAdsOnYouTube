@@ -289,7 +289,7 @@ function waitForData(callback, videoElement) {
     if (videoElement.readyState > 2) {
         callback();
     } else {
-        setTimeout(() => waitForData(callback), 50);
+        setTimeout(() => waitForData(callback, videoElement), 50);
     }
 }
 
