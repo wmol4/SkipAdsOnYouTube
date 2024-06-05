@@ -284,6 +284,7 @@ function checkAndSkip(playerElement) {
     // this function is called every interval1 after a play starts
     const currentTime = videoElement.currentTime;
     if (vidAdCheck()) { // ad playing
+        adPlaying(videoElement);
         if ((currentTime >= skipTime) && keepChecking) {
             keepChecking = false;
             if (checkSkippable(playerElement, videoElement, false)) {
@@ -296,7 +297,6 @@ function checkAndSkip(playerElement) {
         } else {
             keepChecking = true;
         }
-        adPlaying(videoElement);
     } else { // ad not playing
         if ((currentTime >= skipTime) && keepChecking) {
             keepChecking = false;
