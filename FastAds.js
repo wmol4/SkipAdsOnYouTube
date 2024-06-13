@@ -273,7 +273,7 @@ function adNotPlaying(videoElement) {
     if (playerElem && playerElem.style.opacity !== '1') {
         playerElem.style.opacity = '1';
     }
-    if (isVideoPlaying(videoElement)) {
+    if (isVideoPlaying(videoElement) && intervalID) {
         clearInterval(intervalID);
         intervalID = null;
     }
