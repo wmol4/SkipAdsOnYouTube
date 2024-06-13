@@ -168,10 +168,10 @@ function checkAdPlaying(playerElement, print=false) {
     if (indicator0) return true;
     let indicator1 = checkIDMismatch(playerElement, print);
     if (indicator1) return true;
-    let indicator2 = checkPlayerProgressBar(playerElement, print);
-    if (indicator2) return true;
-    let indicator3 = checkPlayerAdChildren(playerElement, print);
-    if (indicator3) return true;
+//     let indicator2 = checkPlayerProgressBar(playerElement, print);
+//     if (indicator2) return true;
+//     let indicator3 = checkPlayerAdChildren(playerElement, print);
+//     if (indicator3) return true;
     return false;
 }
 
