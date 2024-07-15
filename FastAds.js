@@ -28,6 +28,9 @@ let domChanges = true;
 const observationThresh = 100;
 const checkInterval = 1000
 
+// NOTE
+// document.querySelector('[class*="ad-duration-remaining"]')
+
 let timeFormatter = new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'numeric',second:'numeric',hour12:false});
 let lastLogTime = null;
 function log(string) {
@@ -228,6 +231,8 @@ function checkSkippable(playerElement, videoElement, print=true) {
     if (!cond0) return false;
     let cond1 = checkAdPlaying(playerElement, print);
     if (!cond1) return false;
+    let cond2 = isVideoVisible(videoElement);
+    if (!cond2) return false;
     return true;
 }
 
@@ -240,8 +245,14 @@ function getVideos() {
 }
 
 function skipVid(videoElement) {
-    videoElement.currentTime = videoElement.duration;
+    videoElement.currentTime = videoElement.duration-1;
     log(`Ad Found. Skipped ${videoElement.duration}s`);
+
+    if (!document.body.classList.contains('efyt-mini-player')) {
+        document.body.classList.add('efyt-mini-player');
+        document.body.classList.remove('efyt-mini-player');
+    }
+    //videoElement.load();
 }
 
 
@@ -257,9 +268,9 @@ function adPlaying(videoElement) {
     if (playerElem && playerElem.style.opacity === '1') {
         playerElem.style.opacity = adOpacity;
     }
-    if (!intervalID) {
-        intervalID = setInterval(clickSkipButton, 250);
-    }
+//     if (!intervalID) {
+//         intervalID = setInterval(clickSkipButton, 250);
+//     }
 }
 
 function adNotPlaying(videoElement) {
@@ -273,10 +284,10 @@ function adNotPlaying(videoElement) {
     if (playerElem && playerElem.style.opacity !== '1') {
         playerElem.style.opacity = '1';
     }
-    if (isVideoPlaying(videoElement) && intervalID) {
-        clearInterval(intervalID);
-        intervalID = null;
-    }
+//     if (isVideoPlaying(videoElement) && intervalID) {
+//         clearInterval(intervalID);
+//         intervalID = null;
+//     }
 }
 
 
@@ -287,7 +298,7 @@ function checkAndSkip(playerElement) {
         adPlaying(videoElement);
         if ((currentTime >= skipTime) && keepChecking) {
             keepChecking = false;
-            if (checkSkippable(playerElement, videoElement, false)) {
+            if (checkSkippable(playerElement, videoElement, true)) {
                 skipVid(videoElement);
                 clearInterval(intervalID1);
                 intervalID1 = null;
@@ -297,6 +308,7 @@ function checkAndSkip(playerElement) {
         } else {
             keepChecking = true;
         }
+
     } else { // ad not playing
         if ((currentTime >= skipTime) && keepChecking) {
             keepChecking = false;
@@ -324,13 +336,15 @@ function clickSkipButton() {
     const uniqueButtons = new Set(skipButtons);
 
     uniqueButtons.forEach(button => {
-        if (!button.disabled) {
+        if (!button.disabled && isVideoVisible(button, 10, 10) && button.innerText.toLowerCase().includes('skip') && !/\d/.test(button.innerText)) {
+//         if (!button.disabled && button.innerText.toLowerCase().includes('skip') && !/\d/.test(button.innerText)) {
             const buttonContent = button.textContent;
             button.click();
             log(`Clicked "${buttonContent}" button`);
         }
     });
 }
+setInterval(clickSkipButton, 250);
 
 function seekEvent(e) {
     // Ensure the event doesn't fire in input fields
@@ -375,6 +389,7 @@ function seekEvent(e) {
 
 function isElementVisible(element) {
     if (!element) return false;
+    return isVideoVisible(element);
 
     const styles = window.getComputedStyle(element);
     if (styles.display === 'none' || styles.visibility === 'hidden') {// || parseFloat(styles.opacity) < 0.1) {
@@ -451,6 +466,18 @@ function matchesExclusion(el) {
            el.matches("[class*='ad-player-overlay']"); // used for determining if an ad is playing
 }
 
+// create a muted container inside of a document fragment inside of a shadow dom container
+const shadowRoot = document.createElement('div').attachShadow({mode: 'open'});
+const fragment = document.createDocumentFragment();
+const mutedContainer = document.createElement('div');
+
+mutedContainer.style.display = 'none'; // Hide visually
+mutedContainer.style.pointerEvents = 'none'; // Prevent interaction
+mutedContainer.setAttribute('muted', 'true'); // Mute audio
+
+fragment.appendChild(mutedContainer);
+shadowRoot.appendChild(fragment);
+
 function removeAds() {
     if (lastInvocation !== 0) {
         return;
@@ -471,15 +498,17 @@ function removeAds() {
             });
         }
     });
-    // remove if visible, else just hide it (removing some invisible ads seems to create long pauses of a black screen)
+    // move to muted container
     topLevelElements.forEach(el => {
         if (!matchesExclusion(el)) {
-            if (isElementVisible(el)) {
-                log(`Removing ${getElementSelector(el)}`);
-                el.remove();
-            } else {
-                el.style.opacity = '0'; // maybe unnecessary
-            }
+            log(`Removing ${getElementSelector(el)}`);
+            mutedContainer.appendChild(el);
+//             if (isElementVisible(el)) {
+//                 log(`Removing ${getElementSelector(el)}`);
+//                 //el.remove();
+//             } else {
+//                 //el.style.opacity = '0'; // maybe unnecessary
+//             }
         }
     });
     lastInvocation = 0;
@@ -590,5 +619,6 @@ function listen(eventStr, targetTag, debounceDuration, callback) {
     }, true);
 }
 
-waitForBody(bodyFunction);
+//waitForBody(bodyFunction);
+bodyFunction();
 
