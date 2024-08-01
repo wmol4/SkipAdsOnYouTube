@@ -13,6 +13,7 @@
 
 let debounceTimer;
 let adOpacity = '0.1';
+let playbackRate = 2;
 let adObserver = null;
 let intervalID1 = null;
 let intervalID2 = null;
@@ -171,10 +172,10 @@ function checkAdPlaying(playerElement, print=false) {
     if (indicator0) return true;
     let indicator1 = checkIDMismatch(playerElement, print);
     if (indicator1) return true;
-//     let indicator2 = checkPlayerProgressBar(playerElement, print);
-//     if (indicator2) return true;
-//     let indicator3 = checkPlayerAdChildren(playerElement, print);
-//     if (indicator3) return true;
+    let indicator2 = checkPlayerProgressBar(playerElement, print);
+    if (indicator2) return true;
+    let indicator3 = checkPlayerAdChildren(playerElement, print);
+    if (indicator3) return true;
     return false;
 }
 
@@ -245,14 +246,20 @@ function getVideos() {
 }
 
 function skipVid(videoElement) {
-    videoElement.currentTime = videoElement.duration-1;
+    let skipTo = 0.5
+    videoElement.currentTime = videoElement.duration-skipTo;
     log(`Ad Found. Skipped ${videoElement.duration}s`);
 
-    if (!document.body.classList.contains('efyt-mini-player')) {
-        document.body.classList.add('efyt-mini-player');
-        document.body.classList.remove('efyt-mini-player');
-    }
-    //videoElement.load();
+//     let origPlaybackRate = videoElement.playbackRate;
+//     videoElement.playbackRate = playbackRate;
+//     setTimeout(() => {
+//         videoElement.playbackRate = origPlaybackRate;
+//         if (!document.body.classList.contains('efyt-mini-player')) {
+//             document.body.classList.add('efyt-mini-player');
+//             document.body.classList.remove('efyt-mini-player');
+//         }
+//         //videoElement.load();
+//     }, 1000 * (skipTo/playbackRate));
 }
 
 
@@ -296,28 +303,20 @@ function checkAndSkip(playerElement) {
     const currentTime = videoElement.currentTime;
     if (vidAdCheck()) { // ad playing
         adPlaying(videoElement);
-        if ((currentTime >= skipTime) && keepChecking) {
+        if ((currentTime >= skipTime) && keepChecking && checkSkippable(playerElement, videoElement, true)) {
+            skipVid(videoElement);
             keepChecking = false;
-            if (checkSkippable(playerElement, videoElement, true)) {
-                skipVid(videoElement);
-                clearInterval(intervalID1);
-                intervalID1 = null;
-            } else {
-                keepChecking = true;
-            }
-        } else {
-            keepChecking = true;
+            clearInterval(intervalID1);
+            intervalID1 = null;
         }
 
     } else { // ad not playing
+        adNotPlaying(videoElement);
         if ((currentTime >= skipTime) && keepChecking) {
             keepChecking = false;
             clearInterval(intervalID1);
             intervalID1 = null;
-        } else {
-            keepChecking = true;
         }
-        adNotPlaying(videoElement);
     }
 }
 
@@ -330,17 +329,41 @@ function vidAdSkip() {
     }
 }
 
+let userClickEvent = null;
+document.addEventListener('click', function(event) {
+    if (!userClickEvent) {
+        userClickEvent = event;
+        //log('Click event stored');
+    }
+});
+
+function autoClick(element) {
+    if (userClickEvent) {
+        element.dispatchEvent(userClickEvent);
+    } else {
+        //log("User hasn't clicked yet!");
+    }
+}
+
+let clicking = false;
 function clickSkipButton() {
-    const skipButtonSelector = '[class*="ad-skip"] button';
+    if (!userClickEvent || clicking) {
+        return;
+    }
+    const skipButtonSelector = 'button[class*="ad-skip"]';
     const skipButtons = document.querySelectorAll(skipButtonSelector);
     const uniqueButtons = new Set(skipButtons);
 
     uniqueButtons.forEach(button => {
-        if (!button.disabled && isVideoVisible(button, 10, 10) && button.innerText.toLowerCase().includes('skip') && !/\d/.test(button.innerText)) {
-//         if (!button.disabled && button.innerText.toLowerCase().includes('skip') && !/\d/.test(button.innerText)) {
+        //if (!clicking && !button.disabled && isVideoVisible(button, 10, 10) && button.innerText.toLowerCase().includes('skip') && !/\d/.test(button.innerText)) {
+        if (!clicking && !button.disabled) {
+            clicking = true;
             const buttonContent = button.textContent;
-            button.click();
-            log(`Clicked "${buttonContent}" button`);
+            setTimeout(() => {
+                autoClick(button);
+                log(`Clicked "${buttonContent}" button`);
+                clicking = false;
+            }, 100);
         }
     });
 }
@@ -567,12 +590,23 @@ function changeLogoLink() {
     });
 }
 
+function manualVideo() {
+    setVideo(document.querySelector('video'));
+}
+function fullCheck() {
+    manualVideo();
+    waitForPlayer(vidAdSkip);
+}
+
 function bodyFunction() {
     waitForPlayer(() => {
         listen('play', 'VIDEO', 0, onPlay);
     });
     waitForAdsAndObserve();
     document.addEventListener('keydown', seekEvent);
+    document.addEventListener("click", (event) => {
+        fullCheck();
+    });
     changeLogoLink();
 }
 
@@ -601,7 +635,8 @@ function setVideo(elem) {
 
 function onPlay(elem) {
     setVideo(elem);
-    vidAdSkip();
+    //vidAdSkip();
+    waitForPlayer(vidAdSkip);
 }
 
 function listen(eventStr, targetTag, debounceDuration, callback) {
